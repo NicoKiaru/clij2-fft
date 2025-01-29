@@ -19,6 +19,7 @@ import net.imglib2.cache.img.CachedCellImg;
 import net.imglib2.img.basictypeaccess.AccessFlags;
 import net.imglib2.img.basictypeaccess.array.ArrayDataAccess;
 import net.imglib2.img.cell.Cell;
+import net.imglib2.img.display.imagej.ImageJFunctions;
 import net.imglib2.type.numeric.ARGBType;
 import net.imglib2.type.numeric.real.FloatType;
 import net.imglib2.view.Views;
@@ -61,12 +62,10 @@ public class InteractiveSelfContainedImgLib2CacheDeconvolve {
 
 		ArrayList<String> deviceNames = CLIJ.getAvailableDeviceNames();
 
-		if (deviceNames.size()<2) {
-			System.out.println("This demo requires 2 CLIJ devices");
+		if (deviceNames.isEmpty()) {
+			System.out.println("This demo requires a CLIJ compatible.");
 			return;
 		}
-
-		final CLIJ2 clij2 = CLIJ2.getInstance(deviceNames.get(0));
 
 		// Gets PSF
 		File psfFile = DatasetHelper.getDataset("https://zenodo.org/records/5101351/files/PSFHuygens_confocal_Theopsf.tif");
@@ -83,8 +82,17 @@ public class InteractiveSelfContainedImgLib2CacheDeconvolve {
 		RandomAccessibleInterval<FloatType> img = (RandomAccessibleInterval<FloatType>) imgD.getImgPlus();
 
 		// show image and PSF
-		clij2.show(img, "img");
-		clij2.show(psf, "psf");
+		ImageJFunctions.show(img, "img");
+		ImageJFunctions.show(psf, "psf");
+
+		// If you want to remove a device from the pool:
+		// CLIJxPool.excludeDevice("Intel");
+		// If you want to set how a device will be split in several threads:
+		// CLIJxPool.setNumberOfInstancePerDevice("RTX", 2);
+
+		CLIJxPool gpuPool = CLIJxPool.getInstance();
+		System.out.println("Using GPU Pool:");
+		System.out.println(gpuPool.getDetails());
 
 		// Create the version of clij2 RL that works on cells
 		Clij2RichardsonLucyImglib2Cache op =
@@ -94,7 +102,7 @@ public class InteractiveSelfContainedImgLib2CacheDeconvolve {
 						.regularizationFactor(0.001f)
 						.numberOfIterations(50)
 						.nonCirculant(false)
-						.useGPUPool(CLIJxPool.getInstance()) // in fact this is the default behaviour, but one can specify a different pool if necessary here
+						.useGPUPool(gpuPool) // in fact this is the default behaviour, but one can specify a different pool if necessary here
 						.build();
 
 		// here we use the imglib2cache lazy 'generate' utility
@@ -103,7 +111,6 @@ public class InteractiveSelfContainedImgLib2CacheDeconvolve {
 		CachedCellImg<FloatType, ArrayDataAccess<FloatType>> decon = (CachedCellImg) Lazy.generate(img,
 				new int[] { (int) img.dimension(0) / 4, (int) img.dimension(1) / 4, (int) img.dimension(2) / 1 },
 				new FloatType(), AccessFlags.setOf(AccessFlags.VOLATILE), op);
-
 
 		// Change this flag to switch between:
 		// - a parallel compute all strategy
@@ -135,7 +142,7 @@ public class InteractiveSelfContainedImgLib2CacheDeconvolve {
 
 			Duration processingDuration = Duration.between(start, Instant.now());
 			System.out.println("Deconvolution duration = "+processingDuration.toMillis()+" ms");
-			clij2.show(decon, "decon");
+			ImageJFunctions.show(decon,"decon");
 		}
 
 	}
