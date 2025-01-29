@@ -1,8 +1,6 @@
 package net.clij2fft.deconvolution;
 
 import java.awt.BorderLayout;
-import java.util.Arrays;
-import java.util.function.Consumer;
 
 import javax.swing.JComboBox;
 import javax.swing.JFrame;
@@ -10,20 +8,14 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
-import javax.swing.event.PopupMenuEvent;
-import javax.swing.event.PopupMenuListener;
-import javax.swing.plaf.basic.BasicComboBoxUI;
 
-import org.apache.commons.lang3.tuple.Triple;
 import org.scijava.Context;
 import org.scijava.app.StatusService;
 import org.scijava.app.event.StatusEvent;
 import org.scijava.log.LogService;
 import org.scijava.plugin.PluginInfo;
-import org.scijava.ui.UIService;
 
 import ij.ImagePlus;
-import ij.WindowManager;
 import net.clij2fft.deconvolution.RichardsonLucyModelController.PSFTypeEnum;
 import net.imagej.ops.OpService;
 import net.imglib2.img.Img;
@@ -34,24 +26,17 @@ import javax.swing.JTabbedPane;
 import javax.swing.SpinnerNumberModel;
 
 import java.awt.GridBagLayout;
-import java.awt.GridLayout;
 import java.awt.GridBagConstraints;
 import javax.swing.JLabel;
 import java.awt.Insets;
 import javax.swing.JSpinner;
-import javax.swing.SwingConstants;
 import javax.swing.JButton;
 import java.awt.event.ActionListener;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseMotionListener;
 import java.awt.event.ActionEvent;
 import javax.swing.JCheckBox;
-import javax.swing.JTextField;
 import javax.swing.JTextArea;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
-
-import java.awt.Component;
 
 //Functional interface with three parameters and no return value
 interface TriConsumer<A, B, C> {
@@ -577,7 +562,7 @@ public class RichardsonLucyGUI extends JFrame {
 
                 // Update model using setters
                 modelController.setIterations(iterations);
-                modelController.setRegularizaitonFactor(regularizationFactor);
+                modelController.setRegularizationFactor(regularizationFactor);
                 modelController.setUseCells(useCells);
                 modelController.setXyCellSize(xyCellSize);
                 modelController.setzCellSize(zCellSize);
@@ -620,11 +605,12 @@ public class RichardsonLucyGUI extends JFrame {
         		}
         		
         		modelController.setPSFType(psfType);
+                modelController.setIterations(100);
         		
         		new Thread("Deconvolution Thread") {
         			@Override
         			public void run() {
-        				modelController.runDeconvolution(imp, psfImg, 100);
+        				modelController.runDeconvolution(imp, psfImg);
         			}
         		}.start();
         		

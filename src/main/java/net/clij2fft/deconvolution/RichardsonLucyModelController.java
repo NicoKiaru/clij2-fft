@@ -35,12 +35,12 @@ public class RichardsonLucyModelController {
 	    GAUSSIAN
 	}
 	
-	OpService ops;
+	final OpService ops;
 	LogService log;
 	StatusService status;
 	
 	int iterations;
-	float regularizaitonFactor;
+	float regularizationFactor;
 	boolean useCells;
 	int xyCellSize;
 	int zCellSize;
@@ -94,12 +94,12 @@ public class RichardsonLucyModelController {
 	    this.iterations = iterations;
 	}
 
-	public float getRegularizaitonFactor() {
-	    return regularizaitonFactor;
+	public float getRegularizationFactor() {
+	    return regularizationFactor;
 	}
 
-	public void setRegularizaitonFactor(float regularizaitonFactor) {
-	    this.regularizaitonFactor = regularizaitonFactor;
+	public void setRegularizationFactor(float regularizationFactor) {
+	    this.regularizationFactor = regularizationFactor;
 	}
 
 	public boolean isUseCells() {
@@ -312,10 +312,9 @@ public class RichardsonLucyModelController {
 	}
 		
 	
-	public void runDeconvolution(ImagePlus imp, Img psf, int numIterations) {
-		
+	public void runDeconvolution(ImagePlus imp, Img psf) {
 
-		CLIJ2 clij2=null;
+		CLIJ2 clij2;
 		
 		// get clij
 		try {
@@ -337,7 +336,7 @@ public class RichardsonLucyModelController {
 			this.status.showStatus(1, 2, "cell mode is off");
 			this.status.showStatus(1, 2, "deconvolving volume using " + iterations + " iterations" );
 			
-			DeconvolveRichardsonLucyFFT.deconvolveRichardsonLucyFFT(clij2, gpu_image, gpu_psf, gpu_deconvolved, iterations, regularizaitonFactor, true);
+			DeconvolveRichardsonLucyFFT.deconvolveRichardsonLucyFFT(clij2, gpu_image, gpu_psf, gpu_deconvolved, iterations, regularizationFactor, true);
 
 			ImagePlus out = clij2.pull(gpu_deconvolved);
 			out.show();
@@ -366,10 +365,17 @@ public class RichardsonLucyModelController {
 			int numDivisionsZ = (int)(Math.ceil((float)img.dimension(2)/(float)this.zCellSize));
 			
 			int numCells = numDivisionsX*numDivisionsY*numDivisionsZ;
-			
+
+			// TODO: allow user to set overlap ?
 			// create the version of clij2 RL that works on cells
 			Clij2RichardsonLucyImglib2Cache<FloatType, ?, ?> op =
-					Clij2RichardsonLucyImglib2Cache.builder().rai(img).psf(psf).overlap(10,10,10).build();
+					Clij2RichardsonLucyImglib2Cache.builder()
+							.rai(img)
+							.psf(psf)
+							.numberOfIterations(iterations)
+							.nonCirculant(true)
+							.regularizationFactor(regularizationFactor)
+							.overlap(10,10,10).build();
 			
 			op.setUpStatus(status, numCells);
 
@@ -378,18 +384,19 @@ public class RichardsonLucyModelController {
 			// second parameter is the cell size (which we set to half the original dimension in each direction)
 			
 			CachedCellImg<FloatType, ArrayDataAccess<FloatType>> decon = (CachedCellImg) Lazy.generate(img,
-					new int[] { (int) this.xyCellSize, (int) this.xyCellSize, (int) this.zCellSize },
+					new int[] { xyCellSize, xyCellSize, zCellSize },
 					new FloatType(), AccessFlags.setOf(AccessFlags.VOLATILE), op);
 			
 			// trigger processing of the entire volume
-			// (otherwise processing will be triggerred as we view different parts of the volume,
-			// which is sometimes the behavior we want, but sometiems we'd rather process everything before hand,
+			// (otherwise processing will be triggered as we view different parts of the volume,
+			// which is sometimes the behavior we want, but sometimes we'd rather process everything before hand,
 			// so viewing is responsive)
 			// so in this case the main reason for using imglib2 cache is as a convenient mechanism for chunking the image
 			// and we don't fully take advantage of the 'just in time' aspect. 
 			decon.getCells().forEach(Cell::getData);
-			
 			ImagePlus out = ImageJFunctions.show(decon, "Deconvolution");
+			out.show();
+			out.setTitle("Deconvolved");
 			
 		}
 		// reset progress
