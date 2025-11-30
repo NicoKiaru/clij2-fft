@@ -36,7 +36,6 @@ jobs:
           path: |
             /usr/local/include/clFFT*
             /usr/local/lib*/libclFFT*
-            clFFT
           key: clfft-${{ runner.os }}-v1
 
       - name: Install dependencies
@@ -58,6 +57,14 @@ jobs:
           cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
           make -j$(nproc)
           sudo make install
+          sudo ldconfig
+          # Clean up source to save space
+          cd ../../..
+          rm -rf clFFT
+
+      - name: Restore clFFT from cache
+        if: steps.cache-clfft.outputs.cache-hit == 'true'
+        run: |
           sudo ldconfig
 
       - name: Restore clFFT from cache
