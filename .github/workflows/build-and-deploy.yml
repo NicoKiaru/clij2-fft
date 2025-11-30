@@ -67,11 +67,6 @@ jobs:
         run: |
           sudo ldconfig
 
-      - name: Restore clFFT from cache
-        if: steps.cache-clfft.outputs.cache-hit == 'true'
-        run: |
-          sudo ldconfig
-
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
