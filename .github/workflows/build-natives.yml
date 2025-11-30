@@ -1,0 +1,87 @@
+name: Build Native Libraries
+
+on:
+  push:
+    branches: [ gh-actions-build ]  # Only your test branch
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+jobs:
+  build-linux:
+    name: Build Linux x64 natives
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ocl-icd-opencl-dev \
+            opencl-headers \
+            git
+
+      - name: Install clFFT
+        run: |
+          # Clone and build clFFT
+          git clone https://github.com/clMathLibraries/clFFT.git
+          cd clFFT/src
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: Build native library (clij2fft)
+        run: |
+          cd native
+          bash cppbuild.sh
+
+      - name: Build JNI wrapper with Maven
+        run: |
+          mvn install -Dgpg.skip
+
+      - name: Copy artifacts to lib directory
+        run: |
+          PLATFORM=linux-x86_64
+          mkdir -p lib/linux64
+          
+          # Copy the main native library
+          if [ -f native/clij2fft/cppbuild/libclij2fft.so ]; then
+            cp native/clij2fft/cppbuild/libclij2fft.so lib/linux64/
+          fi
+          
+          # Copy the JNI wrapper
+          if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so ]; then
+            cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so lib/linux64/
+          fi
+          
+          # Copy clFFT dependency
+          sudo cp /usr/local/lib*/libclFFT.so* lib/linux64/ || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-x64-natives
+          path: |
+            lib/linux64/
+            target/clij2-fft-*.jar
+          retention-days: 30
+
+      - name: List built files
+        run: |
+          echo "=== Native library contents ==="
+          ls -lah lib/linux64/ || echo "lib/linux64/ not found"
+          echo "=== JAR file ==="
+          ls -lah target/clij2-fft-*.jar || echo "JAR not found"
