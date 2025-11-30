@@ -18,10 +18,12 @@ on:
 jobs:
   build-natives:
     if: |
-      github.event.inputs.build_natives == 'true' ||
-      contains(github.event.head_commit.message, '[build natives]') ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'))
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      (
+        github.event.inputs.build_natives == 'true' ||
+        contains(github.event.head_commit.message, '[build natives]') ||
+        (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'))
+      )
 
     strategy:
       fail-fast: false
@@ -30,7 +32,12 @@ jobs:
           - os: ubuntu-latest
             platform: linux64
             arch: x86_64
-          # Later add: windows, macos
+          - os: macos-13  # Intel Mac
+            platform: macosx
+            arch: x86_64
+          - os: macos-14  # Apple Silicon (M1/M2)
+            platform: macosx-arm64
+            arch: arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -133,20 +140,6 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Prepare lib directory and copy clFFT
-        run: |
-          mkdir -p lib/linux64
-
-          # Copy clFFT libraries from system to lib directory
-          # The build script expects these to be there
-          sudo cp -P /usr/local/lib*/libclFFT.so* lib/linux64/ || \
-          sudo cp -P /usr/local/lib/libclFFT.so* lib/linux64/ || \
-          sudo cp -P /usr/lib/x86_64-linux-gnu/libclFFT.so* lib/linux64/
-
-          # List what we copied (for debugging)
-          echo "clFFT files in lib/linux64:"
-          ls -lah lib/linux64/
-
       - name: Build native library
         run: |
           cd native
@@ -195,24 +188,6 @@ jobs:
           echo "Final lib/macosx-arm64 contents:"
           ls -lah lib/macosx-arm64/
 
-      - name: Copy artifacts to lib directory
-        run: |
-          PLATFORM=linux-x86_64
-          
-          # Copy the main native library (built by cppbuild.sh)
-          if [ -f native/clij2fft/cppbuild/libclij2fft.so ]; then
-            cp native/clij2fft/cppbuild/libclij2fft.so lib/linux64/
-          fi
-          
-          # Copy the JNI wrapper (built by Maven/JavaCPP)
-          if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so ]; then
-            cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so lib/linux64/
-          fi
-          
-          # List final contents
-          echo "Final lib/linux64 contents:"
-          ls -lah lib/linux64/
-
       - name: Upload platform natives
         uses: actions/upload-artifact@v4
         with:
@@ -245,7 +220,6 @@ jobs:
 
       - name: Reorganize natives into lib/
         run: |
-          # Move downloaded natives to proper lib/ structure
           for artifact_dir in downloaded-natives/natives-*; do
             if [ -d "$artifact_dir" ]; then
               platform=$(basename "$artifact_dir" | sed 's/natives-//')
@@ -253,9 +227,10 @@ jobs:
               cp -r "$artifact_dir"/* "lib/$platform/" || true
             fi
           done
-          
-          # Clean up download directory
           rm -rf downloaded-natives/
+          
+          echo "All platform natives:"
+          ls -lah lib/*/
 
       - name: Check for native changes
         id: check_changes
@@ -278,12 +253,12 @@ jobs:
           git push
 
   package-and-deploy:
-    needs: [build-natives, commit-natives]
+    needs: [commit-natives]
     runs-on: ubuntu-latest
     if: |
       always() && 
-      (needs.commit-natives.result == 'success' || needs.commit-natives.result == 'skipped') &&
-      !contains(github.event.head_commit.message, '[skip ci]')
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      (needs.commit-natives.result == 'success' || needs.commit-natives.result == 'skipped')
 
     steps:
       - name: Checkout repository
