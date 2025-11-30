@@ -8,11 +8,20 @@ on:
   pull_request:
     branches: [ master, main ]
   workflow_dispatch:
+    inputs:
+      build_natives:
+        description: 'Force rebuild native libraries'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-natives:
-    # Skip this entire job if commit message contains [skip ci]
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    if: |
+      github.event.inputs.build_natives == 'true' ||
+      contains(github.event.head_commit.message, '[build natives]') ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'))
 
     strategy:
       fail-fast: false
