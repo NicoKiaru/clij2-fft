@@ -1,0 +1,215 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ master, main, gh-actions-build ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build-natives:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux64
+            arch: x86_64
+          # Later add: windows, macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache clFFT
+        id: cache-clfft
+        uses: actions/cache@v3
+        with:
+          path: |
+            /usr/local/include/clFFT*
+            /usr/local/lib*/libclFFT*
+            clFFT
+          key: clfft-${{ runner.os }}-v1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ocl-icd-opencl-dev \
+            opencl-headers \
+            git
+
+      - name: Install clFFT
+        if: steps.cache-clfft.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/clMathLibraries/clFFT.git
+          cd clFFT/src
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+
+      - name: Restore clFFT from cache
+        if: steps.cache-clfft.outputs.cache-hit == 'true'
+        run: |
+          sudo ldconfig
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build native library
+        run: |
+          cd native
+          bash cppbuild.sh
+
+      - name: Build JNI wrapper with Maven
+        run: mvn install -Dgpg.skip
+
+      - name: Copy artifacts to lib directory
+        run: |
+          PLATFORM=linux-x86_64
+          mkdir -p lib/linux64
+          
+          if [ -f native/clij2fft/cppbuild/libclij2fft.so ]; then
+            cp native/clij2fft/cppbuild/libclij2fft.so lib/linux64/
+          fi
+          
+          if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so ]; then
+            cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so lib/linux64/
+          fi
+          
+          sudo cp /usr/local/lib*/libclFFT.so* lib/linux64/ || true
+
+      - name: Upload platform natives
+        uses: actions/upload-artifact@v4
+        with:
+          name: natives-${{ matrix.platform }}
+          path: lib/${{ matrix.platform }}/
+          retention-days: 7
+
+  commit-natives:
+    needs: build-natives
+    runs-on: ubuntu-latest
+    # Only commit on master/main, not on PRs or tags
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/gh-actions-build')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Download all natives
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded-natives/
+
+      - name: Reorganize natives into lib/
+        run: |
+          # Move downloaded natives to proper lib/ structure
+          for artifact_dir in downloaded-natives/natives-*; do
+            if [ -d "$artifact_dir" ]; then
+              platform=$(basename "$artifact_dir" | sed 's/natives-//')
+              mkdir -p "lib/$platform"
+              cp -r "$artifact_dir"/* "lib/$platform/" || true
+            fi
+          done
+          
+          # Clean up download directory
+          rm -rf downloaded-natives/
+
+      - name: Check for native changes
+        id: check_changes
+        run: |
+          git add lib/
+          if git diff --staged --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes to natives"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Natives have changed"
+          fi
+
+      - name: Commit and push natives
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git commit -m "Update native libraries [skip ci]"
+          git push
+
+  package-and-deploy:
+    needs: [build-natives, commit-natives]
+    runs-on: ubuntu-latest
+    # Run after natives are committed, or on tags
+    if: always() && (needs.commit-natives.result == 'success' || needs.commit-natives.result == 'skipped')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      # If natives were just committed, we need to pull them
+      - name: Pull latest changes
+        if: needs.commit-natives.result == 'success'
+        run: git pull origin ${{ github.ref_name }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "type=release" >> $GITHUB_OUTPUT
+            echo "Building RELEASE version"
+          else
+            echo "type=snapshot" >> $GITHUB_OUTPUT
+            echo "Building SNAPSHOT version"
+          fi
+
+      - name: Build and package JAR
+        run: mvn clean package -Dgpg.skip
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clij2-fft-jar-${{ steps.version.outputs.type }}
+          path: target/clij2-fft-*.jar
+          retention-days: 90
+
+      # Optional: Deploy SNAPSHOT to repository
+      - name: Deploy SNAPSHOT to GitHub Packages
+        if: steps.version.outputs.type == 'snapshot' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+        run: |
+          echo "Would deploy SNAPSHOT here"
+          # mvn deploy -Dgpg.skip -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/${{ github.repository }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Optional: Create GitHub Release for tags
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: target/clij2-fft-*.jar
+          draft: false
+          prerelease: false
