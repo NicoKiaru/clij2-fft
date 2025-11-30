@@ -83,6 +83,20 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      - name: Prepare lib directory and copy clFFT
+        run: |
+          mkdir -p lib/linux64
+
+          # Copy clFFT libraries from system to lib directory
+          # The build script expects these to be there
+          sudo cp -P /usr/local/lib*/libclFFT.so* lib/linux64/ || \
+          sudo cp -P /usr/local/lib/libclFFT.so* lib/linux64/ || \
+          sudo cp -P /usr/lib/x86_64-linux-gnu/libclFFT.so* lib/linux64/
+
+          # List what we copied (for debugging)
+          echo "clFFT files in lib/linux64:"
+          ls -lah lib/linux64/
+
       - name: Build native library
         run: |
           cd native
@@ -94,17 +108,20 @@ jobs:
       - name: Copy artifacts to lib directory
         run: |
           PLATFORM=linux-x86_64
-          mkdir -p lib/linux64
           
+          # Copy the main native library (built by cppbuild.sh)
           if [ -f native/clij2fft/cppbuild/libclij2fft.so ]; then
             cp native/clij2fft/cppbuild/libclij2fft.so lib/linux64/
           fi
           
+          # Copy the JNI wrapper (built by Maven/JavaCPP)
           if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so ]; then
             cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so lib/linux64/
           fi
           
-          sudo cp /usr/local/lib*/libclFFT.so* lib/linux64/ || true
+          # List final contents
+          echo "Final lib/linux64 contents:"
+          ls -lah lib/linux64/
 
       - name: Upload platform natives
         uses: actions/upload-artifact@v4
