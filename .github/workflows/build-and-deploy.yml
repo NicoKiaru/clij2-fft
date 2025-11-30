@@ -38,8 +38,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Cache clFFT
-        id: cache-clfft
+      # ========== LINUX SETUP ==========
+      - name: Cache clFFT (Linux)
+        if: runner.os == 'Linux'
+        id: cache-clfft-linux
         uses: actions/cache@v3
         with:
           path: |
@@ -47,7 +49,8 @@ jobs:
             /usr/local/lib*/libclFFT*
           key: clfft-${{ runner.os }}-v1
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -57,8 +60,8 @@ jobs:
             opencl-headers \
             git
 
-      - name: Install clFFT
-        if: steps.cache-clfft.outputs.cache-hit != 'true'
+      - name: Install clFFT (Linux)
+        if: runner.os == 'Linux' && steps.cache-clfft-linux.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/clMathLibraries/clFFT.git
           cd clFFT/src
@@ -67,14 +70,61 @@ jobs:
           make -j$(nproc)
           sudo make install
           sudo ldconfig
-          # Clean up source to save space
           cd ../../..
           rm -rf clFFT
 
-      - name: Restore clFFT from cache
-        if: steps.cache-clfft.outputs.cache-hit == 'true'
+      - name: Restore clFFT from cache (Linux)
+        if: runner.os == 'Linux' && steps.cache-clfft-linux.outputs.cache-hit == 'true'
+        run: sudo ldconfig
+
+      - name: Prepare lib directory (Linux)
+        if: runner.os == 'Linux'
         run: |
-          sudo ldconfig
+          mkdir -p lib/linux64
+          sudo cp -P /usr/local/lib*/libclFFT.so* lib/linux64/ || \
+          sudo cp -P /usr/local/lib/libclFFT.so* lib/linux64/
+          echo "clFFT files in lib/linux64:"
+          ls -lah lib/linux64/
+
+
+      # ========== MACOS SETUP ==========
+      - name: Cache clFFT (macOS)
+        if: runner.os == 'macOS'
+        id: cache-clfft-macos
+        uses: actions/cache@v3
+        with:
+          path: |
+            /usr/local/opt/clfft
+            /opt/homebrew/opt/clfft
+          key: clfft-${{ runner.os }}-${{ matrix.arch }}-v1
+
+      - name: Install clFFT (macOS)
+        if: runner.os == 'macOS' && steps.cache-clfft-macos.outputs.cache-hit != 'true'
+        run: |
+          brew install clfft
+
+      - name: Prepare lib directory (macOS Intel)
+        if: runner.os == 'macOS' && matrix.arch == 'x86_64'
+        run: |
+          mkdir -p lib/macosx
+          # clFFT from Homebrew on Intel Mac
+          if [ -d "/usr/local/opt/clfft/lib" ]; then
+            cp -P /usr/local/opt/clfft/lib/libclFFT.* lib/macosx/
+          fi
+          echo "clFFT files in lib/macosx:"
+          ls -lah lib/macosx/
+
+      - name: Prepare lib directory (macOS ARM64)
+        if: runner.os == 'macOS' && matrix.arch == 'arm64'
+        run: |
+          mkdir -p lib/macosx-arm64
+          # clFFT from Homebrew on Apple Silicon
+          if [ -d "/opt/homebrew/opt/clfft/lib" ]; then
+            cp -P /opt/homebrew/opt/clfft/lib/libclFFT.* lib/macosx-arm64/
+          fi
+          echo "clFFT files in lib/macosx-arm64:"
+          ls -lah lib/macosx-arm64/
+
 
       - name: Set up Java
         uses: actions/setup-java@v3
@@ -104,6 +154,46 @@ jobs:
 
       - name: Build JNI wrapper with Maven
         run: mvn install -Dgpg.skip
+
+      - name: Copy native build artifacts (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          PLATFORM=linux-x86_64
+        
+          if [ -f native/clij2fft/cppbuild/libclij2fft.so ]; then
+            cp native/clij2fft/cppbuild/libclij2fft.so lib/linux64/
+          fi
+        
+          if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so ]; then
+            cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so lib/linux64/
+          fi
+        
+          echo "Final lib/linux64 contents:"
+          ls -lah lib/linux64/
+
+      - name: Copy native build artifacts (macOS Intel)
+        if: runner.os == 'macOS' && matrix.arch == 'x86_64'
+        run: |
+          PLATFORM=macosx-x86_64
+          
+          if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.dylib ]; then
+            cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.dylib lib/macosx/
+          fi
+          
+          echo "Final lib/macosx contents:"
+          ls -lah lib/macosx/
+
+      - name: Copy native build artifacts (macOS ARM64)
+        if: runner.os == 'macOS' && matrix.arch == 'arm64'
+        run: |
+          PLATFORM=macosx-arm64
+          
+          if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.dylib ]; then
+            cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.dylib lib/macosx-arm64/
+          fi
+          
+          echo "Final lib/macosx-arm64 contents:"
+          ls -lah lib/macosx-arm64/
 
       - name: Copy artifacts to lib directory
         run: |
