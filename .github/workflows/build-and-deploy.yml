@@ -24,15 +24,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          #- os: ubuntu-latest
-          #  platform: linux64
-          #  arch: x86_64
-          #- os: macos-13  # Intel Mac
-          #  platform: macosx
-          #  arch: x86_64
-          #- os: macos-14  # Apple Silicon (M1/M2)
-          #  platform: macosx-arm64
-          #  arch: arm64
+          - os: ubuntu-latest
+            platform: linux64
+            arch: x86_64
+          - os: macos-13  # Intel Mac
+            platform: macosx
+            arch: x86_64
+          - os: macos-14  # Apple Silicon (M1/M2)
+            platform: macosx-arm64
+            arch: arm64
           - os: windows-latest
             platform: win64
             arch: x86_64
