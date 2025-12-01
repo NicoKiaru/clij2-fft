@@ -125,6 +125,10 @@ jobs:
           # Clone and build clFFT
           git clone https://github.com/clMathLibraries/clFFT.git
           cd clFFT/src
+          
+          # Fix CMakeLists.txt for modern CMake
+          sed -i '' 's/cmake_minimum_required(VERSION 2.8)/cmake_minimum_required(VERSION 3.5)/' CMakeLists.txt
+    
           mkdir build && cd build
 
           # Different install prefix for Intel vs ARM
