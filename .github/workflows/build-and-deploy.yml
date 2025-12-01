@@ -116,10 +116,33 @@ jobs:
             /opt/homebrew/opt/clfft
           key: clfft-${{ runner.os }}-${{ matrix.arch }}-v1
 
-      - name: Install clFFT (macOS)
+      - name: Install clFFT from source (macOS)
         if: runner.os == 'macOS' && steps.cache-clfft-macos.outputs.cache-hit != 'true'
         run: |
-          brew install clfft
+          # Install CMake if needed
+          brew install cmake || true
+
+          # Clone and build clFFT
+          git clone https://github.com/clMathLibraries/clFFT.git
+          cd clFFT/src
+          mkdir build && cd build
+
+          # Different install prefix for Intel vs ARM
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            PREFIX="/usr/local"
+          else
+            PREFIX="/opt/homebrew"
+          fi
+
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX
+
+          make -j$(sysctl -n hw.ncpu)
+          sudo make install
+          cd ../../..
+          rm -rf clFFT
 
       - name: Prepare lib directory (macOS Intel)
         if: runner.os == 'macOS' && matrix.arch == 'x86_64'
