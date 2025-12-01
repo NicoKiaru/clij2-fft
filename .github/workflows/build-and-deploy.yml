@@ -28,11 +28,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            platform: linux64
+            platform: linux-x86_64
             arch: x86_64
             lib_prefix: /usr/local/lib
           - os: macos-13
-            platform: macosx
+            platform: macosx-x86_64
             arch: x86_64
             lib_prefix: /usr/local
           - os: macos-14
@@ -40,7 +40,7 @@ jobs:
             arch: arm64
             lib_prefix: /opt/homebrew
           - os: windows-latest
-            platform: win64
+            platform: windows-x86_64
             arch: x86_64
             lib_prefix: C:\clFFT
 
@@ -97,10 +97,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path lib\win64
-          Copy-Item "C:\clFFT\bin\*.dll" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
-          Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
-          if (-not (Test-Path "lib\win64\clFFT.dll")) { exit 1 }
+          New-Item -ItemType Directory -Force -Path lib\windows-x86_64
+          Copy-Item "C:\clFFT\bin\*.dll" -Destination "lib\windows-x86_64\" -Force -ErrorAction SilentlyContinue
+          Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\windows-x86_64\" -Force -ErrorAction SilentlyContinue
+          if (-not (Test-Path "lib\windows-x86_64\clFFT.dll")) { exit 1 }
 
       - name: Patch build script for Windows CI
         if: runner.os == 'Windows'
@@ -142,8 +142,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo ldconfig
-          mkdir -p lib/linux64
-          sudo cp -P /usr/local/lib*/libclFFT.so* lib/linux64/ 2>/dev/null || sudo cp -P /usr/local/lib/libclFFT.so* lib/linux64/
+          mkdir -p lib/linux-x86_64
+          sudo cp -P /usr/local/lib*/libclFFT.so* lib/linux-x86_64/ 2>/dev/null || sudo cp -P /usr/local/lib/libclFFT.so* lib/linux-x86_64/
 
       # ========== MACOS SETUP ==========
       - name: Cache clFFT (macOS)
@@ -197,26 +197,21 @@ jobs:
       - name: Copy native build artifacts
         shell: bash
         run: |
+          DEST="lib/${{ matrix.platform }}"
+          
           case "${{ runner.os }}" in
             Windows)
-              PLATFORM="windows-x86_64"
-              EXT="dll"
-              DEST="lib/win64"
               cp native/clij2fft/cppbuild/clij2fft.dll "$DEST/" 2>/dev/null || true
+              cp "target/classes/net/haesleinhuepf/clijx/plugins/${{ matrix.platform }}/"*.dll "$DEST/" 2>/dev/null || true
               ;;
             Linux)
-              PLATFORM="linux-x86_64"
-              EXT="so"
-              DEST="lib/linux64"
               cp native/clij2fft/cppbuild/libclij2fft.so "$DEST/" 2>/dev/null || true
+              cp "target/classes/net/haesleinhuepf/clijx/plugins/${{ matrix.platform }}/"*.so "$DEST/" 2>/dev/null || true
               ;;
             macOS)
-              PLATFORM="macosx-${{ matrix.arch }}"
-              EXT="dylib"
-              DEST="lib/${{ matrix.platform }}"
+              cp "target/classes/net/haesleinhuepf/clijx/plugins/${{ matrix.platform }}/"*.dylib "$DEST/" 2>/dev/null || true
               ;;
           esac
-          cp "target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/"*jniclij2fftWrapper*.$EXT "$DEST/" 2>/dev/null || true
           echo "Final $DEST contents:" && ls -lah "$DEST/"
 
       - name: Upload platform natives
