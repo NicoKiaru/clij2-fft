@@ -45,18 +45,20 @@ case $PLATFORM in
         ;;
     macosx-arm64)
         ln -sf libclFFT.2.dylib ../../../lib/macosx-arm64/libclFFT.dylib
-        
+
         # the following line might not be necessary if make would be properly installed in the path
         CMAKE=(`which cmake`)
-        
+
         $CMAKE -DCMAKE_BUILD_TYPE=Release \
                -DCMAKE_INSTALL_PREFIX="../../../lib/macosx-arm64/" \
                -DCMAKE_CXX_COMPILER="g++" \
                -DCMAKE_CUDA_HOST_COMPILER="g++" \
-		       -DCLFFT_LIBRARY_DIR="../../../lib/macosx-arm64" ..
+               -DCLFFT_LIBRARY_DIR="../../../lib/macosx-arm64" \
+               -DCMAKE_BUILD_WITH_INSTALL_RPATH=TRUE \
+               -DCMAKE_INSTALL_RPATH="@loader_path" ..
         make
         make install
-	    install_name_tool -change libclFFT.2.dylib @rpath/libclFFT.2.dylib ../../../lib/macosx-arm64/libclij2fft.dylib
+        install_name_tool -change libclFFT.2.dylib @rpath/libclFFT.2.dylib ../../../lib/macosx-arm64/libclij2fft.dylib
         ;;
     windows-x86_64)
         $CMAKE -G"NMake Makefiles" \
