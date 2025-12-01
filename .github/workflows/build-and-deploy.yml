@@ -163,16 +163,16 @@ jobs:
           # Backup original
           cp cppbuild.sh cppbuild.sh.bak
 
-          # Replace with correct CMake variable names (note the underscore!)
+          # Replace paths
           sed -i 's|C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.2/include/|C:/OpenCL/include/|g' cppbuild.sh
-          sed -i 's|OPENCL_INCLUDE_DIR|OpenCL_INCLUDE_DIR|g' cppbuild.sh
           sed -i 's|C:/OpenCL/clFFT-2.12.2-Windows-x64/lib64/import/|C:/clFFT/lib64/import/|g' cppbuild.sh
 
-          # Add OpenCL library (with correct variable name)
+          # Add OpenCL library with BOTH naming conventions
           sed -i '/OpenCL_INCLUDE_DIR/a\               -DOpenCL_LIBRARY="C:/OpenCL/lib/OpenCL.lib" \\' cppbuild.sh
+          sed -i '/OpenCL_LIBRARY/a\               -DOPENCL_INCLUDE_DIR="C:/OpenCL/include/" \\' cppbuild.sh
 
           echo "=== Patched cppbuild.sh (Windows section) ==="
-          grep -A 15 "windows-x86_64)" cppbuild.sh
+          grep -A 20 "windows-x86_64)" cppbuild.sh
 
       # ========== LINUX SETUP ==========
       - name: Cache clFFT (Linux)
