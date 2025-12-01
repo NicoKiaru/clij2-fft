@@ -2,11 +2,10 @@ name: Build and Deploy
 
 on:
   push:
-    branches: [ master, main, gh-actions-build ]
-    tags:
-      - 'v*'
+    branches: [master, main, gh-actions-build]
+    tags: ['v*']
   pull_request:
-    branches: [ master, main ]
+    branches: [master, main]
   workflow_dispatch:
     inputs:
       build_natives:
@@ -17,8 +16,13 @@ on:
 
 jobs:
   build-natives:
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
-
+    # Only build natives when explicitly requested
+    if: |
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      (
+        contains(github.event.head_commit.message, '[build natives]') ||
+        github.event.inputs.build_natives == 'true'
+      )
     strategy:
       fail-fast: false
       matrix:
@@ -26,367 +30,150 @@ jobs:
           - os: ubuntu-latest
             platform: linux64
             arch: x86_64
-          - os: macos-13  # Intel Mac
+            lib_prefix: /usr/local/lib
+          - os: macos-13
             platform: macosx
             arch: x86_64
-          - os: macos-14  # Apple Silicon (M1/M2)
+            lib_prefix: /usr/local
+          - os: macos-14
             platform: macosx-arm64
             arch: arm64
+            lib_prefix: /opt/homebrew
           - os: windows-latest
             platform: win64
             arch: x86_64
+            lib_prefix: C:\clFFT
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      # Add the conditional check as first step instead
-      - name: Check if should build
-        shell: bash  # ← Explicitly use bash or windows fails
-        id: should_build
-        run: |
-          if [[ "${{ contains(github.event.head_commit.message, '[build natives]') }}" == "true" ]] || \
-             [[ "${{ github.event.inputs.build_natives }}" == "true" ]] || \
-             [[ "${{ github.ref }}" == "refs/heads/master" ]] || \
-             [[ "${{ github.ref }}" == "refs/heads/main" ]] || \
-             [[ "${{ github.ref }}" == "refs/heads/gh-actions-build" ]]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "Skipping build - no trigger found"
-            exit 0
-          fi  
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # ========== WINDOWS SETUP ==========
       - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
-        uses: microsoft/setup-msbuild@v2
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Cache clFFT (Windows)
         if: runner.os == 'Windows'
         id: cache-clfft-windows
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: |
-            C:\clFFT
+          path: C:\clFFT
           key: clfft-windows-v1
 
       - name: Install OpenCL SDK (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Download OpenCL headers
           git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git C:\OpenCL-temp\headers
           New-Item -ItemType Directory -Force -Path "C:\OpenCL\include\CL"
           Copy-Item "C:\OpenCL-temp\headers\CL\*" "C:\OpenCL\include\CL\" -Force
 
-          # Download and build OpenCL ICD Loader to get OpenCL.lib
           git clone --depth 1 https://github.com/KhronosGroup/OpenCL-ICD-Loader.git C:\OpenCL-ICD-Loader
           cd C:\OpenCL-ICD-Loader
-
           New-Item -ItemType Directory -Force -Path build
           cd build
-
-          cmake .. `
-            -G "Visual Studio 17 2022" `
-            -A x64 `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DOPENCL_ICD_LOADER_HEADERS_DIR="C:\OpenCL\include"
-
+          cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DOPENCL_ICD_LOADER_HEADERS_DIR="C:\OpenCL\include"
           cmake --build . --config Release
-
-          # Copy the built OpenCL.lib to our OpenCL directory
           New-Item -ItemType Directory -Force -Path "C:\OpenCL\lib"
           Copy-Item "Release\OpenCL.lib" "C:\OpenCL\lib\" -Force
-
-          Write-Host "OpenCL SDK installed:"
-          Write-Host "Headers:"
-          Get-ChildItem "C:\OpenCL\include\CL"
-          Write-Host "`nLibrary:"
-          Get-ChildItem "C:\OpenCL\lib"
 
       - name: Download pre-built clFFT (Windows)
         if: runner.os == 'Windows' && steps.cache-clfft-windows.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          # Download pre-built clFFT ZIP
-          $url = "https://github.com/clMathLibraries/clFFT/releases/download/v2.12.2/clFFT-2.12.2-Windows-x64.zip"
-          $output = "clFFT.zip"
-          Write-Host "Downloading clFFT..."
-          Invoke-WebRequest -Uri $url -OutFile $output
-
-          # Extract to C:\clFFT-temp
-          Write-Host "Extracting clFFT..."
-          Expand-Archive -Path $output -DestinationPath "C:\clFFT-temp" -Force
-
-          # List extracted contents for debugging
-          Write-Host "Contents of C:\clFFT-temp:"
-          Get-ChildItem "C:\clFFT-temp" -Recurse | Select-Object FullName
-
-          # The ZIP has a nested structure, move contents up
+          Invoke-WebRequest -Uri "https://github.com/clMathLibraries/clFFT/releases/download/v2.12.2/clFFT-2.12.2-Windows-x64.zip" -OutFile "clFFT.zip"
+          Expand-Archive -Path clFFT.zip -DestinationPath "C:\clFFT-temp" -Force
           $extractedDir = Get-ChildItem "C:\clFFT-temp" | Select-Object -First 1
-          Write-Host "Moving contents from $($extractedDir.FullName) to C:\clFFT..."
-
-          # Ensure the bin folder is preserved
           New-Item -ItemType Directory -Force -Path "C:\clFFT\bin"
           Copy-Item "$($extractedDir.FullName)\bin\*" -Destination "C:\clFFT\bin\" -Force -Recurse
-
-          # Copy other necessary files and folders
           Copy-Item "$($extractedDir.FullName)\lib64" -Destination "C:\clFFT\" -Force -Recurse
-
-          # Clean up
           Remove-Item "C:\clFFT-temp" -Recurse -Force
-
-          # Verify clFFT.dll is present
-          $clFFTDLL = Get-ChildItem "C:\clFFT\bin\clFFT.dll" | Select-Object -ExpandProperty FullName
-          if ($clFFTDLL) {
-            Write-Host "Found clFFT.dll at: $clFFTDLL"
-          } else {
-            Write-Host "ERROR: clFFT.dll not found in C:\clFFT\bin!"
-            exit 1
-          }
+          if (-not (Test-Path "C:\clFFT\bin\clFFT.dll")) { exit 1 }
 
       - name: Prepare lib directory (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path lib\win64
-          Write-Host "Created lib\win64 directory."
-
-          # Copy clFFT DLLs and libs
-          if (Test-Path "C:\clFFT\bin") {
-            Write-Host "Copying DLLs from C:\clFFT\bin to lib\win64..."
-            $dlls = Get-ChildItem "C:\clFFT\bin\*.dll" | Select-Object -ExpandProperty FullName
-            if ($dlls) {
-              Write-Host "Found DLLs in C:\clFFT\bin: $dlls"
-              Copy-Item "C:\clFFT\bin\*.dll" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
-            } else {
-              Write-Host "WARNING: No DLLs found in C:\clFFT\bin!"
-            }
-          } else {
-            Write-Host "WARNING: C:\clFFT\bin does not exist!"
-          }
-
-          # Copy libs from lib64/import
-          if (Test-Path "C:\clFFT\lib64\import") {
-            Write-Host "Copying libs from C:\clFFT\lib64\import to lib\win64..."
-            $libs = Get-ChildItem "C:\clFFT\lib64\import\*.lib" | Select-Object -ExpandProperty FullName
-            if ($libs) {
-              Write-Host "Found libs in C:\clFFT\lib64\import: $libs"
-              Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
-            } else {
-              Write-Host "WARNING: No libs found in C:\clFFT\lib64\import!"
-            }
-          } else {
-            Write-Host "WARNING: C:\clFFT\lib64\import does not exist!"
-          }
-
-          # Copy libs from lib/import (alternative path)
-          if (Test-Path "C:\clFFT\lib\import") {
-            Write-Host "Copying libs from C:\clFFT\lib\import to lib\win64..."
-            $libs = Get-ChildItem "C:\clFFT\lib\import\*.lib" | Select-Object -ExpandProperty FullName
-            if ($libs) {
-              Write-Host "Found libs in C:\clFFT\lib\import: $libs"
-              Copy-Item "C:\clFFT\lib\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
-            } else {
-              Write-Host "WARNING: No libs found in C:\clFFT\lib\import!"
-            }
-          } else {
-            Write-Host "WARNING: C:\clFFT\lib\import does not exist!"
-          }
-
-          # Final check: List all files in lib\win64
-          Write-Host "Final contents of lib\win64:"
-          Get-ChildItem "lib\win64" | Select-Object FullName
-
-          # Verify clFFT.dll is in lib\win64
-          $clFFTInLib = Get-ChildItem "lib\win64\clFFT.dll" | Select-Object -ExpandProperty FullName
-          if ($clFFTInLib) {
-            Write-Host "SUCCESS: clFFT.dll is in lib\win64 at $clFFTInLib"
-          } else {
-            Write-Host "ERROR: clFFT.dll is missing from lib\win64!"
-            exit 1
-          }
+          Copy-Item "C:\clFFT\bin\*.dll" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+          Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+          if (-not (Test-Path "lib\win64\clFFT.dll")) { exit 1 }
 
       - name: Patch build script for Windows CI
         if: runner.os == 'Windows'
         shell: bash
         run: |
           cd native/clij2fft
-
-          # Backup original
-          cp cppbuild.sh cppbuild.sh.bak
-
-          echo "=== BEFORE patching ==="
-          grep -A 10 "windows-x86_64)" cppbuild.sh
-
-          # Replace paths
           sed -i 's|C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.2/include/|C:/OpenCL/include/|g' cppbuild.sh
           sed -i 's|C:/OpenCL/clFFT-2.12.2-Windows-x64/lib64/import/|C:/clFFT/lib64/import/|g' cppbuild.sh
-
-          # Make sure we're changing the right variable name
           sed -i 's|DOPENCL_INCLUDE_DIR|DOpenCL_INCLUDE_DIR|g' cppbuild.sh
-
-          # Add OpenCL library line AFTER the OpenCL_INCLUDE_DIR line
           sed -i '/DOpenCL_INCLUDE_DIR.*C:\/OpenCL\/include/a\               -DOpenCL_LIBRARY="C:/OpenCL/lib/OpenCL.lib" \\' cppbuild.sh
-
-          # Also add OPENCL_INCLUDE_DIR for the CMakeLists.txt that needs it
           sed -i '/DOpenCL_LIBRARY/a\               -DOPENCL_INCLUDE_DIR="C:/OpenCL/include/" \\' cppbuild.sh
-
-          echo ""
-          echo "=== AFTER patching ==="
-          grep -A 20 "windows-x86_64)" cppbuild.sh
-
-          echo ""
-          echo "=== Checking if variables are present ==="
-          grep "OpenCL_LIBRARY" cppbuild.sh || echo "ERROR: OpenCL_LIBRARY not found!"
-          grep "OpenCL_INCLUDE_DIR" cppbuild.sh || echo "ERROR: OpenCL_INCLUDE_DIR not found!"
-          grep "OPENCL_INCLUDE_DIR" cppbuild.sh || echo "ERROR: OPENCL_INCLUDE_DIR not found!"
 
       # ========== LINUX SETUP ==========
       - name: Cache clFFT (Linux)
         if: runner.os == 'Linux'
         id: cache-clfft-linux
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             /usr/local/include/clFFT*
             /usr/local/lib*/libclFFT*
-          key: clfft-${{ runner.os }}-v1
+          key: clfft-linux-v1
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            ocl-icd-opencl-dev \
-            opencl-headers \
-            git
+          sudo apt-get install -y build-essential cmake ocl-icd-opencl-dev opencl-headers git
 
       - name: Install clFFT (Linux)
         if: runner.os == 'Linux' && steps.cache-clfft-linux.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/clMathLibraries/clFFT.git
-          cd clFFT/src
-          mkdir build && cd build
+          cd clFFT/src && mkdir build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
-          make -j$(nproc)
-          sudo make install
-          sudo ldconfig
-          cd ../../..
-          rm -rf clFFT
-
-      - name: Restore clFFT from cache (Linux)
-        if: runner.os == 'Linux' && steps.cache-clfft-linux.outputs.cache-hit == 'true'
-        run: sudo ldconfig
+          make -j$(nproc) && sudo make install && sudo ldconfig
 
       - name: Prepare lib directory (Linux)
         if: runner.os == 'Linux'
         run: |
+          sudo ldconfig
           mkdir -p lib/linux64
-          sudo cp -P /usr/local/lib*/libclFFT.so* lib/linux64/ || \
-          sudo cp -P /usr/local/lib/libclFFT.so* lib/linux64/
-          echo "clFFT files in lib/linux64:"
-          ls -lah lib/linux64/
-
+          sudo cp -P /usr/local/lib*/libclFFT.so* lib/linux64/ 2>/dev/null || sudo cp -P /usr/local/lib/libclFFT.so* lib/linux64/
 
       # ========== MACOS SETUP ==========
       - name: Cache clFFT (macOS)
         if: runner.os == 'macOS'
         id: cache-clfft-macos
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: |
-            /usr/local/opt/clfft
-            /opt/homebrew/opt/clfft
-          key: clfft-${{ runner.os }}-${{ matrix.arch }}-v2  # ← Bump cache version
+          path: ${{ matrix.lib_prefix }}/opt/clfft
+          key: clfft-macos-${{ matrix.arch }}-v2
 
       - name: Install clFFT from source (macOS)
         if: runner.os == 'macOS' && steps.cache-clfft-macos.outputs.cache-hit != 'true'
         run: |
-          # Install CMake if needed
           brew install cmake || true
-
-          # Clone and build clFFT
           git clone https://github.com/clMathLibraries/clFFT.git
           cd clFFT/src
-          # Debug: Check original CMakeLists.txt
-          
-          echo "=== BEFORE sed ==="
-          head -20 CMakeLists.txt
-          
-          # Fix CMakeLists.txt for modern CMake (macOS sed syntax)
           sed -i.bak 's/cmake_minimum_required( VERSION 3.1 )/cmake_minimum_required( VERSION 3.6 )/' CMakeLists.txt
-          
-          # Debug: Check after sed
-          echo "=== AFTER sed ==="
-          head -20 CMakeLists.txt
-          
           mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=${{ matrix.lib_prefix }}
+          make -j$(sysctl -n hw.ncpu) && sudo make install
 
-          # Different install prefix for Intel vs ARM
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            PREFIX="/usr/local"
-          else
-            PREFIX="/opt/homebrew"
-          fi
-
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX
-
-          make -j$(sysctl -n hw.ncpu)
-          sudo make install
-          cd ../../..
-          rm -rf clFFT
-
-      # CRITICAL FIX: Verify clFFT installation
-      - name: Verify clFFT installation (macOS)
+      - name: Prepare lib directory (macOS)
         if: runner.os == 'macOS'
         run: |
-          echo "=== Checking clFFT installation ==="
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            PREFIX="/usr/local"
-          else
-            PREFIX="/opt/homebrew"
-          fi
-          
-          echo "Expected prefix: $PREFIX"
-          ls -la $PREFIX/lib/*clFFT* || echo "WARNING: clFFT libs not found in $PREFIX/lib"
-          ls -la $PREFIX/include/clFFT* || echo "WARNING: clFFT headers not found in $PREFIX/include"
+          mkdir -p lib/${{ matrix.platform }}
+          cp -P ${{ matrix.lib_prefix }}/lib/libclFFT.* lib/${{ matrix.platform }}/ 2>/dev/null || \
+          cp -P ${{ matrix.lib_prefix }}/opt/clfft/lib/libclFFT.* lib/${{ matrix.platform }}/ 2>/dev/null || true
+          ls -lah lib/${{ matrix.platform }}/
 
-      - name: Prepare lib directory (macOS Intel)
-        if: runner.os == 'macOS' && matrix.arch == 'x86_64'
-        run: |
-          mkdir -p lib/macosx
-          if [ -d "/usr/local/lib" ]; then
-            cp -P /usr/local/lib/libclFFT.* lib/macosx/ 2>/dev/null || echo "Using alternate path"
-          fi
-          if [ -d "/usr/local/opt/clfft/lib" ]; then
-            cp -P /usr/local/opt/clfft/lib/libclFFT.* lib/macosx/ 2>/dev/null || true
-          fi
-          echo "clFFT files in lib/macosx:"
-          ls -lah lib/macosx/
-
-      - name: Prepare lib directory (macOS ARM64)
-        if: runner.os == 'macOS' && matrix.arch == 'arm64'
-        run: |
-          mkdir -p lib/macosx-arm64
-          if [ -d "/opt/homebrew/lib" ]; then
-            cp -P /opt/homebrew/lib/libclFFT.* lib/macosx-arm64/ 2>/dev/null || echo "Using alternate path"
-          fi
-          if [ -d "/opt/homebrew/opt/clfft/lib" ]; then
-            cp -P /opt/homebrew/opt/clfft/lib/libclFFT.* lib/macosx-arm64/ 2>/dev/null || true
-          fi
-          echo "clFFT files in lib/macosx-arm64:"
-          ls -lah lib/macosx-arm64/
-
-
+      # ========== BUILD ==========
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
@@ -394,117 +181,43 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # CRITICAL FIX: Single native build step with proper environment
-      - name: Build native library (MacOS / Linux)
+      - name: Build native library
         shell: bash
         run: |
           cd native
-          
-          # For macOS ARM64, set library paths
           if [ "${{ runner.os }}" = "macOS" ] && [ "${{ matrix.arch }}" = "arm64" ]; then
             export DYLD_LIBRARY_PATH="/opt/homebrew/lib:${DYLD_LIBRARY_PATH:-}"
             export CMAKE_PREFIX_PATH="/opt/homebrew:${CMAKE_PREFIX_PATH:-}"
-            export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-            echo "Set ARM64 Mac environment:"
-            echo "  DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH"
-            echo "  CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH"
           fi
-          
-          # For Windows, use cmd with vcvars
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            echo "Skips"
-          else
-            bash cppbuild.sh
-          fi  
-
-      - name: Setup MSVC dev environment (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build native library (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          cd native
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          bash cppbuild.sh  
-
-      - name: Build JNI wrapper with Maven (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: mvn install -Dgpg.skip
-
-      - name: Build native library (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          cd native
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           bash cppbuild.sh
 
-      - name: Build JNI wrapper with Maven (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
+      - name: Build JNI wrapper with Maven
         run: mvn install -Dgpg.skip
 
-      - name: Copy native build artifacts (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Copy native build artifacts
+        shell: bash
         run: |
-          $PLATFORM = "windows-x86_64"
-          
-          # Copy main native library
-          if (Test-Path "native\clij2fft\cppbuild\clij2fft.dll") {
-            Copy-Item "native\clij2fft\cppbuild\clij2fft.dll" -Destination "lib\win64\"
-          }
-          
-          # Copy JNI wrapper
-          if (Test-Path "target\classes\net\haesleinhuepf\clijx\plugins\$PLATFORM\jniclij2fftWrapper.dll") {
-            Copy-Item "target\classes\net\haesleinhuepf\clijx\plugins\$PLATFORM\jniclij2fftWrapper.dll" -Destination "lib\win64\"
-          }
-          
-          Write-Host "Final lib\win64 contents:"
-          Get-ChildItem "lib\win64"
-
-      - name: Copy native build artifacts (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          PLATFORM=linux-x86_64
-          
-          if [ -f native/clij2fft/cppbuild/libclij2fft.so ]; then
-            cp native/clij2fft/cppbuild/libclij2fft.so lib/linux64/
-          fi
-          
-          if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so ]; then
-            cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.so lib/linux64/
-          fi
-          
-          echo "Final lib/linux64 contents:"
-          ls -lah lib/linux64/
-
-      - name: Copy native build artifacts (macOS Intel)
-        if: runner.os == 'macOS' && matrix.arch == 'x86_64'
-        run: |
-          PLATFORM=macosx-x86_64
-          
-          if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.dylib ]; then
-            cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.dylib lib/macosx/
-          fi
-          
-          echo "Final lib/macosx contents:"
-          ls -lah lib/macosx/
-
-      - name: Copy native build artifacts (macOS ARM64)
-        if: runner.os == 'macOS' && matrix.arch == 'arm64'
-        run: |
-          PLATFORM=macosx-arm64
-          
-          if [ -f target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.dylib ]; then
-            cp target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/libjniclij2fftWrapper.dylib lib/macosx-arm64/
-          fi
-          
-          echo "Final lib/macosx-arm64 contents:"
-          ls -lah lib/macosx-arm64/
+          case "${{ runner.os }}" in
+            Windows)
+              PLATFORM="windows-x86_64"
+              EXT="dll"
+              DEST="lib/win64"
+              cp native/clij2fft/cppbuild/clij2fft.dll "$DEST/" 2>/dev/null || true
+              ;;
+            Linux)
+              PLATFORM="linux-x86_64"
+              EXT="so"
+              DEST="lib/linux64"
+              cp native/clij2fft/cppbuild/libclij2fft.so "$DEST/" 2>/dev/null || true
+              ;;
+            macOS)
+              PLATFORM="macosx-${{ matrix.arch }}"
+              EXT="dylib"
+              DEST="lib/${{ matrix.platform }}"
+              ;;
+          esac
+          cp "target/classes/net/haesleinhuepf/clijx/plugins/$PLATFORM/"*jniclij2fftWrapper*.$EXT "$DEST/" 2>/dev/null || true
+          echo "Final $DEST contents:" && ls -lah "$DEST/"
 
       - name: Upload platform natives
         uses: actions/upload-artifact@v4
@@ -516,13 +229,12 @@ jobs:
   commit-natives:
     needs: build-natives
     runs-on: ubuntu-latest
-    # Only run if build-natives succeeded and we're on a branch (not PR, not already skipped)
+    # Only commit if natives were built and we're on a main branch
     if: |
       always() && 
       needs.build-natives.result == 'success' &&
       github.event_name == 'push' && 
-      (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/gh-actions-build') &&
-      !contains(github.event.head_commit.message, '[skip ci]')
+      (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/gh-actions-build')
 
     steps:
       - name: Checkout repository
@@ -536,83 +248,20 @@ jobs:
         with:
           path: downloaded-natives/
 
-      - name: Reorganize natives into lib/
+      - name: Reorganize and commit natives
         run: |
           for artifact_dir in downloaded-natives/natives-*; do
-            if [ -d "$artifact_dir" ]; then
-              platform=$(basename "$artifact_dir" | sed 's/natives-//')
-              mkdir -p "lib/$platform"
-              cp -r "$artifact_dir"/* "lib/$platform/" || true
-            fi
+            [ -d "$artifact_dir" ] || continue
+            platform=$(basename "$artifact_dir" | sed 's/natives-//')
+            mkdir -p "lib/$platform"
+            cp -r "$artifact_dir"/* "lib/$platform/" || true
           done
           rm -rf downloaded-natives/
           
-          echo "All platform natives:"
-          ls -lah lib/*/
-
-      - name: Check for native changes
-        id: check_changes
-        run: |
           git add lib/
-          if git diff --staged --quiet; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "No changes to natives"
-          else
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "Natives have changed"
+          if ! git diff --staged --quiet; then
+            git config user.name "GitHub Actions Bot"
+            git config user.email "actions@github.com"
+            git commit -m "Update native libraries [skip ci]"
+            git push
           fi
-
-      - name: Commit and push natives
-        if: steps.check_changes.outputs.changed == 'true'
-        run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-          git commit -m "Update native libraries [skip ci]"
-          git push
-
-  package-and-deploy:
-    needs: [commit-natives]
-    runs-on: ubuntu-latest
-    if: |
-      always() && 
-      !contains(github.event.head_commit.message, '[skip ci]') &&
-      (needs.commit-natives.result == 'success' || needs.commit-natives.result == 'skipped')
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-
-      - name: Pull latest changes (if natives were committed)
-        if: needs.commit-natives.result == 'success'
-        run: |
-          git pull origin ${{ github.ref_name }}
-
-      - name: Set up Java
-        uses: actions/setup-java@v3
-        with:
-          java-version: '11'
-          distribution: 'temurin'
-          cache: 'maven'
-
-      - name: Determine version
-        id: version
-        run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "type=release" >> $GITHUB_OUTPUT
-            echo "Building RELEASE version"
-          else
-            echo "type=snapshot" >> $GITHUB_OUTPUT
-            echo "Building SNAPSHOT version"
-          fi
-
-      - name: Build and package JAR
-        run: mvn clean package -Dgpg.skip
-
-      - name: Upload JAR artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: clij2-fft-jar-${{ steps.version.outputs.type }}
-          path: target/clij2-fft-*.jar
-          retention-days: 90
