@@ -181,7 +181,31 @@ jobs:
           bash cppbuild.sh
 
       - name: Build JNI wrapper with Maven
-        run: mvn install "-Dgpg.skip"
+        shell: bash
+        run: |
+          LIB_DIR="${{ github.workspace }}/lib/${{ matrix.platform }}"
+          echo "Library directory: $LIB_DIR"
+          ls -la "$LIB_DIR"
+          
+          case "${{ runner.os }}" in
+            Linux)
+              export LD_LIBRARY_PATH="$LIB_DIR:${LD_LIBRARY_PATH:-}"
+              export LIBRARY_PATH="$LIB_DIR:${LIBRARY_PATH:-}"
+              ;;
+            macOS)
+              export DYLD_LIBRARY_PATH="$LIB_DIR:${DYLD_LIBRARY_PATH:-}"
+              export LIBRARY_PATH="$LIB_DIR:${LIBRARY_PATH:-}"
+              ;;
+            Windows)
+              # Windows needs semicolons and backslashes
+              WIN_LIB_DIR=$(cygpath -w "$LIB_DIR")
+              export LIB="$WIN_LIB_DIR;${LIB:-}"
+              export PATH="$LIB_DIR:$PATH"
+              echo "Windows LIB=$LIB"
+              ;;
+          esac
+          
+          mvn install "-Dgpg.skip"
 
       - name: Copy native build artifacts
         shell: bash
