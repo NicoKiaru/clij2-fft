@@ -102,17 +102,6 @@ jobs:
           Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\windows-x86_64\" -Force -ErrorAction SilentlyContinue
           if (-not (Test-Path "lib\windows-x86_64\clFFT.dll")) { exit 1 }
 
-      - name: Patch build script for Windows CI
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          cd native/clij2fft
-          sed -i 's|C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.2/include/|C:/OpenCL/include/|g' cppbuild.sh
-          sed -i 's|C:/OpenCL/clFFT-2.12.2-Windows-x64/lib64/import/|C:/clFFT/lib64/import/|g' cppbuild.sh
-          sed -i 's|DOPENCL_INCLUDE_DIR|DOpenCL_INCLUDE_DIR|g' cppbuild.sh
-          sed -i '/DOpenCL_INCLUDE_DIR.*C:\/OpenCL\/include/a\               -DOpenCL_LIBRARY="C:/OpenCL/lib/OpenCL.lib" \\' cppbuild.sh
-          sed -i '/DOpenCL_LIBRARY/a\               -DOPENCL_INCLUDE_DIR="C:/OpenCL/include/" \\' cppbuild.sh
-
       # ========== LINUX SETUP ==========
       - name: Cache clFFT (Linux)
         if: runner.os == 'Linux'
