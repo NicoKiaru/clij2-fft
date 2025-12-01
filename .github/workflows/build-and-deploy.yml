@@ -334,6 +334,7 @@ jobs:
           bash cppbuild.sh
 
       - name: Build JNI wrapper with Maven
+        shell: bash
         run: mvn install -Dgpg.skip
 
       - name: Build native library (Windows)
