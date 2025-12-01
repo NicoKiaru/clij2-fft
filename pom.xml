@@ -239,6 +239,93 @@
 					<argLine>-Xmx2G</argLine>
 				</configuration>
 			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-resources-plugin</artifactId>
+				<version>3.3.1</version>
+				<executions>
+					<!-- Linux x86_64 -->
+					<execution>
+						<id>copy-linux-natives</id>
+						<phase>prepare-package</phase>
+						<goals>
+							<goal>copy-resources</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.outputDirectory}/net/haesleinhuepf/clijx/plugins/linux-x86_64</outputDirectory>
+							<resources>
+								<resource>
+									<directory>${basedir}/lib/linux64</directory>
+									<includes>
+										<include>**/*.so</include>
+									</includes>
+								</resource>
+							</resources>
+						</configuration>
+					</execution>
+
+					<!-- Windows x86_64 -->
+					<execution>
+						<id>copy-windows-natives</id>
+						<phase>prepare-package</phase>
+						<goals>
+							<goal>copy-resources</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.outputDirectory}/net/haesleinhuepf/clijx/plugins/windows-x86_64</outputDirectory>
+							<resources>
+								<resource>
+									<directory>${basedir}/lib/win64</directory>
+									<includes>
+										<include>**/*.dll</include>
+									</includes>
+								</resource>
+							</resources>
+						</configuration>
+					</execution>
+
+					<!-- macOS x86_64 -->
+					<execution>
+						<id>copy-macosx-natives</id>
+						<phase>prepare-package</phase>
+						<goals>
+							<goal>copy-resources</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.outputDirectory}/net/haesleinhuepf/clijx/plugins/macosx-x86_64</outputDirectory>
+							<resources>
+								<resource>
+									<directory>${basedir}/lib/macosx</directory>
+									<includes>
+										<include>**/*.dylib</include>
+									</includes>
+								</resource>
+							</resources>
+						</configuration>
+					</execution>
+
+					<!-- macOS ARM64 -->
+					<execution>
+						<id>copy-macosx-arm64-natives</id>
+						<phase>prepare-package</phase>
+						<goals>
+							<goal>copy-resources</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.outputDirectory}/net/haesleinhuepf/clijx/plugins/macosx-arm64</outputDirectory>
+							<resources>
+								<resource>
+									<directory>${basedir}/lib/macosx-arm64</directory>
+									<includes>
+										<include>**/*.dylib</include>
+									</includes>
+								</resource>
+							</resources>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 			
 			<!-- Use JavaCpp to create wrappers to native libraries -->
 			<plugin>

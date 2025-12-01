@@ -114,44 +114,99 @@ jobs:
           # Download pre-built clFFT ZIP
           $url = "https://github.com/clMathLibraries/clFFT/releases/download/v2.12.2/clFFT-2.12.2-Windows-x64.zip"
           $output = "clFFT.zip"
-
-          Write-Host "Downloading clFFT..."
+          Write-Host "Downloading clFFT from $url..."
           Invoke-WebRequest -Uri $url -OutFile $output
 
-          # Extract to C:\clFFT
-          Write-Host "Extracting clFFT..."
+          # Extract to C:\clFFT-temp
+          Write-Host "Extracting clFFT.zip to C:\clFFT-temp..."
           Expand-Archive -Path $output -DestinationPath "C:\clFFT-temp" -Force
+
+          # List extracted contents for debugging
+          Write-Host "Contents of C:\clFFT-temp:"
+          Get-ChildItem "C:\clFFT-temp" -Recurse | Select-Object FullName
 
           # The ZIP has a nested structure, move contents up
           $extractedDir = Get-ChildItem "C:\clFFT-temp" | Select-Object -First 1
+          Write-Host "Moving contents from $($extractedDir.FullName) to C:\clFFT..."
           Move-Item "$($extractedDir.FullName)\*" "C:\clFFT\" -Force
+
+          # List C:\clFFT after moving
+          Write-Host "Contents of C:\clFFT after moving:"
+          Get-ChildItem "C:\clFFT" -Recurse | Select-Object FullName
+
+          # Clean up
           Remove-Item "C:\clFFT-temp" -Recurse -Force
 
-          Write-Host "clFFT installed at C:\clFFT:"
-          Get-ChildItem "C:\clFFT" -Recurse | Select-Object FullName
+          # Check for clFFT.dll specifically
+          $clFFTDLL = Get-ChildItem "C:\clFFT" -Recurse -Filter "clFFT.dll" | Select-Object -ExpandProperty FullName
+          if ($clFFTDLL) {
+            Write-Host "Found clFFT.dll at: $clFFTDLL"
+          } else {
+            Write-Host "ERROR: clFFT.dll not found in C:\clFFT!"
+            exit 1
+          }
 
       - name: Prepare lib directory (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path lib\win64
+          Write-Host "Created lib\win64 directory."
 
           # Copy clFFT DLLs and libs
           if (Test-Path "C:\clFFT\bin") {
-            Copy-Item "C:\clFFT\bin\*.dll" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+            Write-Host "Copying DLLs from C:\clFFT\bin to lib\win64..."
+            $dlls = Get-ChildItem "C:\clFFT\bin\*.dll" | Select-Object -ExpandProperty FullName
+            if ($dlls) {
+              Write-Host "Found DLLs in C:\clFFT\bin: $dlls"
+              Copy-Item "C:\clFFT\bin\*.dll" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+            } else {
+              Write-Host "WARNING: No DLLs found in C:\clFFT\bin!"
+            }
+          } else {
+            Write-Host "WARNING: C:\clFFT\bin does not exist!"
           }
 
+          # Copy libs from lib64/import
           if (Test-Path "C:\clFFT\lib64\import") {
-            Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+            Write-Host "Copying libs from C:\clFFT\lib64\import to lib\win64..."
+            $libs = Get-ChildItem "C:\clFFT\lib64\import\*.lib" | Select-Object -ExpandProperty FullName
+            if ($libs) {
+              Write-Host "Found libs in C:\clFFT\lib64\import: $libs"
+              Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+            } else {
+              Write-Host "WARNING: No libs found in C:\clFFT\lib64\import!"
+            }
+          } else {
+            Write-Host "WARNING: C:\clFFT\lib64\import does not exist!"
           }
 
-          # Also check for lib directory (might be named differently in ZIP)
+          # Copy libs from lib/import (alternative path)
           if (Test-Path "C:\clFFT\lib\import") {
-            Copy-Item "C:\clFFT\lib\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+            Write-Host "Copying libs from C:\clFFT\lib\import to lib\win64..."
+            $libs = Get-ChildItem "C:\clFFT\lib\import\*.lib" | Select-Object -ExpandProperty FullName
+            if ($libs) {
+              Write-Host "Found libs in C:\clFFT\lib\import: $libs"
+              Copy-Item "C:\clFFT\lib\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+            } else {
+              Write-Host "WARNING: No libs found in C:\clFFT\lib\import!"
+            }
+          } else {
+            Write-Host "WARNING: C:\clFFT\lib\import does not exist!"
           }
 
-          Write-Host "Files copied to lib\win64:"
-          Get-ChildItem "lib\win64"
+          # Final check: List all files in lib\win64
+          Write-Host "Final contents of lib\win64:"
+          Get-ChildItem "lib\win64" | Select-Object FullName
+
+          # Verify clFFT.dll is in lib\win64
+          $clFFTInLib = Get-ChildItem "lib\win64\clFFT.dll" | Select-Object -ExpandProperty FullName
+          if ($clFFTInLib) {
+            Write-Host "SUCCESS: clFFT.dll is in lib\win64 at $clFFTInLib"
+          } else {
+            Write-Host "ERROR: clFFT.dll is missing from lib\win64!"
+            exit 1
+          }
 
       - name: Patch build script for Windows CI
         if: runner.os == 'Windows'
