@@ -327,6 +327,18 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           bash cppbuild.sh
 
+      - name: Patch build script for macOS ARM64
+        if: runner.os == 'macOS' && matrix.arch == 'arm64'
+        shell: bash
+        run: |
+          cd native/clij2fft
+          
+          # Add rpath settings to help linker find clFFT
+          sed -i.bak '/macosx-arm64)/,/;;/ s|\(DCLFFT_LIBRARY_DIR.*\)|\1 \\\n           -DCMAKE_BUILD_WITH_INSTALL_RPATH=TRUE \\\n           -DCMAKE_INSTALL_RPATH="@loader_path"|' cppbuild.sh
+          
+          echo "=== Patched cppbuild.sh (macOS ARM64 section) ==="
+          sed -n '/macosx-arm64)/,/;;/p' cppbuild.sh    
+
       - name: Build native library (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
