@@ -74,6 +74,37 @@ jobs:
             C:\clFFT
           key: clfft-windows-v1
 
+      - name: Install OpenCL Headers and ICD (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Download and setup OpenCL headers
+          git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git C:\OpenCL-SDK\include\CL
+
+          # Move headers to the right place (CMake expects CL/cl.h structure)
+          Move-Item "C:\OpenCL-SDK\include\CL\CL\*" "C:\OpenCL-SDK\include\CL\" -Force
+          Remove-Item "C:\OpenCL-SDK\include\CL\CL" -Recurse -Force -ErrorAction SilentlyContinue
+
+          # Download OpenCL ICD Loader for linking
+          git clone --depth 1 https://github.com/KhronosGroup/OpenCL-ICD-Loader.git C:\OpenCL-ICD-Loader
+          cd C:\OpenCL-ICD-Loader
+
+          New-Item -ItemType Directory -Force -Path build
+          cd build
+
+          cmake .. `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="C:\OpenCL-SDK" `
+            -DOPENCL_ICD_LOADER_HEADERS_DIR="C:\OpenCL-SDK\include"
+
+          cmake --build . --config Release
+          cmake --install . --config Release
+
+          Write-Host "OpenCL SDK installed:"
+          Get-ChildItem "C:\OpenCL-SDK" -Recurse
+
       - name: Install clFFT from source (Windows)
         if: runner.os == 'Windows' && steps.cache-clfft-windows.outputs.cache-hit != 'true'
         shell: pwsh
@@ -89,58 +120,52 @@ jobs:
           New-Item -ItemType Directory -Force -Path build
           cd build
 
-          # Configure with CMake
+          # Configure with CMake - tell it where OpenCL is
           cmake .. `
             -G "Visual Studio 17 2022" `
             -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_SHARED_LIBS=ON `
-            -DCMAKE_INSTALL_PREFIX="C:\clFFT"
+            -DCMAKE_INSTALL_PREFIX="C:\clFFT" `
+            -DOPENCL_INCLUDE_DIRS="C:\OpenCL-SDK\include" `
+            -DOPENCL_LIBRARIES="C:\OpenCL-SDK\lib\OpenCL.lib"
 
           # Build
+          Write-Host "=== Building clFFT ==="
           cmake --build . --config Release
 
-          # Debug: Find where the DLL actually is
-          Write-Host "=== Searching for clFFT.dll ==="
-          Get-ChildItem -Path . -Recurse -Filter "clFFT.dll" -ErrorAction SilentlyContinue
-          Get-ChildItem -Path . -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue
+          # Debug: Find where files are
+          Write-Host "`n=== Searching for built files ==="
+          Get-ChildItem -Path . -Recurse -Filter "clFFT.dll" -ErrorAction SilentlyContinue | Select-Object FullName
+          Get-ChildItem -Path . -Recurse -Filter "clFFT.lib" -ErrorAction SilentlyContinue | Select-Object FullName
 
-          # Install (might fail, but continue)
+          # Install (may fail, continue anyway)
           cmake --install . --config Release
 
-          # Manual copy if install failed
-          Write-Host "=== Manual DLL copy ==="
+          # Manual copy as backup
+          Write-Host "`n=== Manual copy as backup ==="
           New-Item -ItemType Directory -Force -Path "C:\clFFT\bin"
           New-Item -ItemType Directory -Force -Path "C:\clFFT\lib64\import"
 
-          # Find and copy DLLs
-          $dllFiles = Get-ChildItem -Path . -Recurse -Filter "*.dll" | Where-Object { $_.Name -like "*clFFT*" }
-          foreach ($dll in $dllFiles) {
-            Write-Host "Copying $($dll.FullName) to C:\clFFT\bin\"
-            Copy-Item $dll.FullName -Destination "C:\clFFT\bin\" -Force
+          # Copy DLLs from wherever they are
+          Get-ChildItem -Path . -Recurse -Filter "clFFT.dll" | ForEach-Object {
+            Write-Host "Found DLL: $($_.FullName)"
+            Copy-Item $_.FullName -Destination "C:\clFFT\bin\" -Force
           }
 
-          # Find and copy LIBs
-          $libFiles = Get-ChildItem -Path . -Recurse -Filter "*.lib" | Where-Object { $_.Name -like "*clFFT*" }
-          foreach ($lib in $libFiles) {
-            Write-Host "Copying $($lib.FullName) to C:\clFFT\lib64\import\"
-            Copy-Item $lib.FullName -Destination "C:\clFFT\lib64\import\" -Force
+          # Copy LIBs
+          Get-ChildItem -Path . -Recurse -Filter "clFFT.lib" | ForEach-Object {
+            Write-Host "Found LIB: $($_.FullName)"
+            Copy-Item $_.FullName -Destination "C:\clFFT\lib64\import\" -Force
           }
 
-          # Verify
+          # Also copy OpenCL.dll if needed
+          if (Test-Path "C:\OpenCL-SDK\bin\OpenCL.dll") {
+            Copy-Item "C:\OpenCL-SDK\bin\OpenCL.dll" -Destination "C:\clFFT\bin\" -Force
+          }
+
           Write-Host "`n=== Final verification ==="
-          Write-Host "clFFT installed at C:\clFFT"
           Get-ChildItem "C:\clFFT" -Recurse
-
-      - name: Install OpenCL Headers (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Download Khronos OpenCL headers
-          git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git C:\OpenCL\include\CL
-          
-          Write-Host "OpenCL headers installed:"
-          Get-ChildItem "C:\OpenCL\include\CL"
 
       - name: Prepare lib directory (Windows)
         if: runner.os == 'Windows'
