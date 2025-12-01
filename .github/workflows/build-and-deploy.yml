@@ -327,6 +327,27 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           bash cppbuild.sh
 
+      - name: Set library path (macOS ARM64)
+        if: runner.os == 'macOS' && matrix.arch == 'arm64'
+        run: |
+          echo "DYLD_LIBRARY_PATH=$GITHUB_WORKSPACE/lib/macosx-arm64" >> $GITHUB_ENV
+
+      - name: Debug clFFT location (macOS ARM64)
+        if: runner.os == 'macOS' && matrix.arch == 'arm64'
+        run: |
+          echo "Looking for clFFT in /opt/homebrew/opt/clfft/lib/"
+          ls -lah /opt/homebrew/opt/clfft/lib/ || echo "Not found in /opt/homebrew/opt/clfft/lib/"
+          echo "Looking for clFFT in lib/macosx-arm64/"
+          ls -lah lib/macosx-arm64/ || echo "Not found in lib/macosx-arm64/"
+          echo "Checking DYLD_LIBRARY_PATH:"
+          echo $DYLD_LIBRARY_PATH
+
+      - name: Verify clFFT installation (macOS ARM64)
+        if: runner.os == 'macOS' && matrix.arch == 'arm64'
+        run: |
+          ls -lah /opt/homebrew/opt/clfft/lib/ || echo "clFFT not installed in /opt/homebrew/opt/clfft/lib/"
+          ls -lah lib/macosx-arm64/ || echo "clFFT not copied to lib/macosx-arm64/"
+
       - name: Build native library (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
@@ -353,12 +374,6 @@ jobs:
         run: |
           cd native
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          bash cppbuild.sh
-
-      - name: Build native library (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          cd native
           bash cppbuild.sh
 
       - name: Copy native build artifacts (Windows)
