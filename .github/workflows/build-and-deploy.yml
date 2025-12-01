@@ -74,29 +74,38 @@ jobs:
             C:\clFFT
           key: clfft-windows-v1
 
-      - name: Install clFFT (Windows)
+      - name: Install clFFT from source (Windows)
         if: runner.os == 'Windows' && steps.cache-clfft-windows.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          # Download pre-built clFFT
-          $url = "https://github.com/clMathLibraries/clFFT/releases/download/v2.12.2/clFFT-2.12.2-Windows-x64.msi"
-          $output = "clFFT.msi"
-          
-          Write-Host "Downloading clFFT..."
-          Invoke-WebRequest -Uri $url -OutFile $output
-          
-          # Install MSI
-          Write-Host "Installing clFFT..."
-          Start-Process msiexec.exe -ArgumentList "/i $output /qn /norestart INSTALLDIR=C:\clFFT" -Wait
-          
-          # Verify installation
-          if (Test-Path "C:\clFFT") {
-            Write-Host "clFFT installed successfully"
-            Get-ChildItem "C:\clFFT" -Recurse -Directory
-          } else {
-            Write-Host "ERROR: clFFT not found after installation"
-            exit 1
-          }
+          # Clone clFFT
+          git clone https://github.com/clMathLibraries/clFFT.git
+          cd clFFT/src
+
+          # Fix CMakeLists.txt for modern CMake (same as macOS)
+          (Get-Content CMakeLists.txt) -replace 'cmake_minimum_required\( VERSION 3\.1 \)', 'cmake_minimum_required( VERSION 3.5 )' | Set-Content CMakeLists.txt
+
+          # Create build directory
+          New-Item -ItemType Directory -Force -Path build
+          cd build
+
+          # Configure with CMake
+          cmake .. `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_SHARED_LIBS=ON `
+            -DCMAKE_INSTALL_PREFIX="C:\clFFT"
+
+          # Build
+          cmake --build . --config Release
+
+          # Install
+          cmake --install . --config Release
+
+          # Verify
+          Write-Host "clFFT installed at C:\clFFT"
+          Get-ChildItem "C:\clFFT" -Recurse
 
       - name: Install OpenCL Headers (Windows)
         if: runner.os == 'Windows'
