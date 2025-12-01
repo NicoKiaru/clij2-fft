@@ -82,7 +82,7 @@ jobs:
           git clone https://github.com/clMathLibraries/clFFT.git
           cd clFFT/src
 
-          # Fix CMakeLists.txt for modern CMake (same as macOS)
+          # Fix CMakeLists.txt for modern CMake
           (Get-Content CMakeLists.txt) -replace 'cmake_minimum_required\( VERSION 3\.1 \)', 'cmake_minimum_required( VERSION 3.5 )' | Set-Content CMakeLists.txt
 
           # Create build directory
@@ -100,10 +100,35 @@ jobs:
           # Build
           cmake --build . --config Release
 
-          # Install
+          # Debug: Find where the DLL actually is
+          Write-Host "=== Searching for clFFT.dll ==="
+          Get-ChildItem -Path . -Recurse -Filter "clFFT.dll" -ErrorAction SilentlyContinue
+          Get-ChildItem -Path . -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue
+
+          # Install (might fail, but continue)
           cmake --install . --config Release
 
+          # Manual copy if install failed
+          Write-Host "=== Manual DLL copy ==="
+          New-Item -ItemType Directory -Force -Path "C:\clFFT\bin"
+          New-Item -ItemType Directory -Force -Path "C:\clFFT\lib64\import"
+
+          # Find and copy DLLs
+          $dllFiles = Get-ChildItem -Path . -Recurse -Filter "*.dll" | Where-Object { $_.Name -like "*clFFT*" }
+          foreach ($dll in $dllFiles) {
+            Write-Host "Copying $($dll.FullName) to C:\clFFT\bin\"
+            Copy-Item $dll.FullName -Destination "C:\clFFT\bin\" -Force
+          }
+
+          # Find and copy LIBs
+          $libFiles = Get-ChildItem -Path . -Recurse -Filter "*.lib" | Where-Object { $_.Name -like "*clFFT*" }
+          foreach ($lib in $libFiles) {
+            Write-Host "Copying $($lib.FullName) to C:\clFFT\lib64\import\"
+            Copy-Item $lib.FullName -Destination "C:\clFFT\lib64\import\" -Force
+          }
+
           # Verify
+          Write-Host "`n=== Final verification ==="
           Write-Host "clFFT installed at C:\clFFT"
           Get-ChildItem "C:\clFFT" -Recurse
 
