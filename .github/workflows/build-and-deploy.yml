@@ -131,7 +131,7 @@ jobs:
           head -20 CMakeLists.txt
           
           # Fix CMakeLists.txt for modern CMake (macOS sed syntax)
-          sed -i.bak 's/cmake_minimum_required(VERSION 3.1)/cmake_minimum_required(VERSION 3.6)/' CMakeLists.txt
+          sed -i.bak 's/cmake_minimum_required( VERSION 3.1 )/cmake_minimum_required( VERSION 3.6 )/' CMakeLists.txt
           
           # Debug: Check after sed
           echo "=== AFTER sed ==="
