@@ -338,7 +338,7 @@ jobs:
           cache: 'maven'
 
       # CRITICAL FIX: Single native build step with proper environment
-      - name: Build native library
+      - name: Build native library (MacOS / Linux)
         shell: bash
         run: |
           cd native
@@ -355,14 +355,22 @@ jobs:
           
           # For Windows, use cmd with vcvars
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cmd //c "call \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Auxiliary\\Build\\vcvars64.bat\" && bash cppbuild.sh"
+            echo "Skips"
           else
             bash cppbuild.sh
-          fi
+          fi  
 
       - name: Setup MSVC dev environment (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build native library (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cd native
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          bash cppbuild.sh  
 
       - name: Build JNI wrapper with Maven (Linux/macOS)
         if: runner.os != 'Windows'
