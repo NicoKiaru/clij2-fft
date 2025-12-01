@@ -163,16 +163,31 @@ jobs:
           # Backup original
           cp cppbuild.sh cppbuild.sh.bak
 
+          echo "=== BEFORE patching ==="
+          grep -A 10 "windows-x86_64)" cppbuild.sh
+
           # Replace paths
           sed -i 's|C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.2/include/|C:/OpenCL/include/|g' cppbuild.sh
           sed -i 's|C:/OpenCL/clFFT-2.12.2-Windows-x64/lib64/import/|C:/clFFT/lib64/import/|g' cppbuild.sh
 
-          # Add OpenCL library with BOTH naming conventions
-          sed -i '/OpenCL_INCLUDE_DIR/a\               -DOpenCL_LIBRARY="C:/OpenCL/lib/OpenCL.lib" \\' cppbuild.sh
-          sed -i '/OpenCL_LIBRARY/a\               -DOPENCL_INCLUDE_DIR="C:/OpenCL/include/" \\' cppbuild.sh
+          # Make sure we're changing the right variable name
+          sed -i 's|DOPENCL_INCLUDE_DIR|DOpenCL_INCLUDE_DIR|g' cppbuild.sh
 
-          echo "=== Patched cppbuild.sh (Windows section) ==="
+          # Add OpenCL library line AFTER the OpenCL_INCLUDE_DIR line
+          sed -i '/DOpenCL_INCLUDE_DIR.*C:\/OpenCL\/include/a\               -DOpenCL_LIBRARY="C:/OpenCL/lib/OpenCL.lib" \\' cppbuild.sh
+
+          # Also add OPENCL_INCLUDE_DIR for the CMakeLists.txt that needs it
+          sed -i '/DOpenCL_LIBRARY/a\               -DOPENCL_INCLUDE_DIR="C:/OpenCL/include/" \\' cppbuild.sh
+
+          echo ""
+          echo "=== AFTER patching ==="
           grep -A 20 "windows-x86_64)" cppbuild.sh
+
+          echo ""
+          echo "=== Checking if variables are present ==="
+          grep "OpenCL_LIBRARY" cppbuild.sh || echo "ERROR: OpenCL_LIBRARY not found!"
+          grep "OpenCL_INCLUDE_DIR" cppbuild.sh || echo "ERROR: OpenCL_INCLUDE_DIR not found!"
+          grep "OPENCL_INCLUDE_DIR" cppbuild.sh || echo "ERROR: OPENCL_INCLUDE_DIR not found!"
 
       # ========== LINUX SETUP ==========
       - name: Cache clFFT (Linux)
