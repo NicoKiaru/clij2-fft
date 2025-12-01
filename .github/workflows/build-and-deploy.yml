@@ -114,11 +114,11 @@ jobs:
           # Download pre-built clFFT ZIP
           $url = "https://github.com/clMathLibraries/clFFT/releases/download/v2.12.2/clFFT-2.12.2-Windows-x64.zip"
           $output = "clFFT.zip"
-          Write-Host "Downloading clFFT from $url..."
+          Write-Host "Downloading clFFT..."
           Invoke-WebRequest -Uri $url -OutFile $output
 
           # Extract to C:\clFFT-temp
-          Write-Host "Extracting clFFT.zip to C:\clFFT-temp..."
+          Write-Host "Extracting clFFT..."
           Expand-Archive -Path $output -DestinationPath "C:\clFFT-temp" -Force
 
           # List extracted contents for debugging
@@ -128,21 +128,23 @@ jobs:
           # The ZIP has a nested structure, move contents up
           $extractedDir = Get-ChildItem "C:\clFFT-temp" | Select-Object -First 1
           Write-Host "Moving contents from $($extractedDir.FullName) to C:\clFFT..."
-          Move-Item "$($extractedDir.FullName)\*" "C:\clFFT\" -Force
 
-          # List C:\clFFT after moving
-          Write-Host "Contents of C:\clFFT after moving:"
-          Get-ChildItem "C:\clFFT" -Recurse | Select-Object FullName
+          # Ensure the bin folder is preserved
+          New-Item -ItemType Directory -Force -Path "C:\clFFT\bin"
+          Copy-Item "$($extractedDir.FullName)\bin\*" -Destination "C:\clFFT\bin\" -Force -Recurse
+
+          # Copy other necessary files and folders
+          Copy-Item "$($extractedDir.FullName)\lib64" -Destination "C:\clFFT\" -Force -Recurse
 
           # Clean up
           Remove-Item "C:\clFFT-temp" -Recurse -Force
 
-          # Check for clFFT.dll specifically
-          $clFFTDLL = Get-ChildItem "C:\clFFT" -Recurse -Filter "clFFT.dll" | Select-Object -ExpandProperty FullName
+          # Verify clFFT.dll is present
+          $clFFTDLL = Get-ChildItem "C:\clFFT\bin\clFFT.dll" | Select-Object -ExpandProperty FullName
           if ($clFFTDLL) {
             Write-Host "Found clFFT.dll at: $clFFTDLL"
           } else {
-            Write-Host "ERROR: clFFT.dll not found in C:\clFFT!"
+            Write-Host "ERROR: clFFT.dll not found in C:\clFFT\bin!"
             exit 1
           }
 
