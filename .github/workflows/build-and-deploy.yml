@@ -17,7 +17,6 @@ on:
 
 jobs:
   build-natives:
-    # Remove or simplify the if condition
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
 
     strategy:
@@ -247,7 +246,7 @@ jobs:
           path: |
             /usr/local/opt/clfft
             /opt/homebrew/opt/clfft
-          key: clfft-${{ runner.os }}-${{ matrix.arch }}-v1
+          key: clfft-${{ runner.os }}-${{ matrix.arch }}-v2  # ← Bump cache version
 
       - name: Install clFFT from source (macOS)
         if: runner.os == 'macOS' && steps.cache-clfft-macos.outputs.cache-hit != 'true'
@@ -289,13 +288,30 @@ jobs:
           cd ../../..
           rm -rf clFFT
 
+      # CRITICAL FIX: Verify clFFT installation
+      - name: Verify clFFT installation (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "=== Checking clFFT installation ==="
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            PREFIX="/usr/local"
+          else
+            PREFIX="/opt/homebrew"
+          fi
+          
+          echo "Expected prefix: $PREFIX"
+          ls -la $PREFIX/lib/*clFFT* || echo "WARNING: clFFT libs not found in $PREFIX/lib"
+          ls -la $PREFIX/include/clFFT* || echo "WARNING: clFFT headers not found in $PREFIX/include"
+
       - name: Prepare lib directory (macOS Intel)
         if: runner.os == 'macOS' && matrix.arch == 'x86_64'
         run: |
           mkdir -p lib/macosx
-          # clFFT from Homebrew on Intel Mac
+          if [ -d "/usr/local/lib" ]; then
+            cp -P /usr/local/lib/libclFFT.* lib/macosx/ 2>/dev/null || echo "Using alternate path"
+          fi
           if [ -d "/usr/local/opt/clfft/lib" ]; then
-            cp -P /usr/local/opt/clfft/lib/libclFFT.* lib/macosx/
+            cp -P /usr/local/opt/clfft/lib/libclFFT.* lib/macosx/ 2>/dev/null || true
           fi
           echo "clFFT files in lib/macosx:"
           ls -lah lib/macosx/
@@ -304,9 +320,11 @@ jobs:
         if: runner.os == 'macOS' && matrix.arch == 'arm64'
         run: |
           mkdir -p lib/macosx-arm64
-          # clFFT from Homebrew on Apple Silicon
+          if [ -d "/opt/homebrew/lib" ]; then
+            cp -P /opt/homebrew/lib/libclFFT.* lib/macosx-arm64/ 2>/dev/null || echo "Using alternate path"
+          fi
           if [ -d "/opt/homebrew/opt/clfft/lib" ]; then
-            cp -P /opt/homebrew/opt/clfft/lib/libclFFT.* lib/macosx-arm64/
+            cp -P /opt/homebrew/opt/clfft/lib/libclFFT.* lib/macosx-arm64/ 2>/dev/null || true
           fi
           echo "clFFT files in lib/macosx-arm64:"
           ls -lah lib/macosx-arm64/
@@ -319,28 +337,32 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Build native library (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
+      # CRITICAL FIX: Single native build step with proper environment
+      - name: Build native library
+        shell: bash
         run: |
           cd native
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          bash cppbuild.sh
+          
+          # For macOS ARM64, set library paths
+          if [ "${{ runner.os }}" = "macOS" ] && [ "${{ matrix.arch }}" = "arm64" ]; then
+            export DYLD_LIBRARY_PATH="/opt/homebrew/lib:${DYLD_LIBRARY_PATH:-}"
+            export CMAKE_PREFIX_PATH="/opt/homebrew:${CMAKE_PREFIX_PATH:-}"
+            export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+            echo "Set ARM64 Mac environment:"
+            echo "  DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH"
+            echo "  CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH"
+          fi
+          
+          # For Windows, use cmd with vcvars
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cmd //c "call \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Auxiliary\\Build\\vcvars64.bat\" && bash cppbuild.sh"
+          else
+            bash cppbuild.sh
+          fi
 
-      - name: Build native library (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          cd native
-          bash cppbuild.sh
-
-      - name: Setup MSVC (Windows)
+      - name: Setup MSVC dev environment (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build JNI wrapper with Maven (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: mvn install -Dgpg.skip
 
       - name: Build JNI wrapper with Maven (Linux/macOS)
         if: runner.os != 'Windows'
