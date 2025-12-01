@@ -125,10 +125,18 @@ jobs:
           # Clone and build clFFT
           git clone https://github.com/clMathLibraries/clFFT.git
           cd clFFT/src
+          # Debug: Check original CMakeLists.txt
           
-          # Fix CMakeLists.txt for modern CMake
-          sed -i '' 's/cmake_minimum_required(VERSION 2.8)/cmake_minimum_required(VERSION 3.6)/' CMakeLists.txt
-    
+          echo "=== BEFORE sed ==="
+          head -20 CMakeLists.txt
+          
+          # Fix CMakeLists.txt for modern CMake (macOS sed syntax)
+          sed -i.bak 's/cmake_minimum_required(VERSION 2.8)/cmake_minimum_required(VERSION 3.6)/' CMakeLists.txt
+          
+          # Debug: Check after sed
+          echo "=== AFTER sed ==="
+          head -20 CMakeLists.txt
+          
           mkdir build && cd build
 
           # Different install prefix for Intel vs ARM
