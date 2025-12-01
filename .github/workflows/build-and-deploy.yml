@@ -133,12 +133,22 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path lib\win64
-          
-          # Copy clFFT DLLs and libs to lib directory
-          Copy-Item "C:\clFFT\bin\*.dll" -Destination "lib\win64\" -Force
-          Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\win64\" -Force
-          
-          Write-Host "Files in lib\win64:"
+
+          # Copy clFFT DLLs and libs
+          if (Test-Path "C:\clFFT\bin") {
+            Copy-Item "C:\clFFT\bin\*.dll" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+          }
+
+          if (Test-Path "C:\clFFT\lib64\import") {
+            Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+          }
+
+          # Also check for lib directory (might be named differently in ZIP)
+          if (Test-Path "C:\clFFT\lib\import") {
+            Copy-Item "C:\clFFT\lib\import\*.lib" -Destination "lib\win64\" -Force -ErrorAction SilentlyContinue
+          }
+
+          Write-Host "Files copied to lib\win64:"
           Get-ChildItem "lib\win64"
 
       - name: Patch build script for Windows CI
