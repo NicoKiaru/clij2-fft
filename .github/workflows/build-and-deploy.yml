@@ -42,6 +42,7 @@ jobs:
     steps:
       # Add the conditional check as first step instead
       - name: Check if should build
+        shell: bash  # ← Explicitly use bash or windows fails
         id: should_build
         run: |
           if [[ "${{ contains(github.event.head_commit.message, '[build natives]') }}" == "true" ]] || \
