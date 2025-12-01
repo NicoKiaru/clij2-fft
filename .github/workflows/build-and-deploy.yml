@@ -24,15 +24,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            platform: linux64
+          #- os: ubuntu-latest
+          #  platform: linux64
+          #  arch: x86_64
+          #- os: macos-13  # Intel Mac
+          #  platform: macosx
+          #  arch: x86_64
+          #- os: macos-14  # Apple Silicon (M1/M2)
+          #  platform: macosx-arm64
+          #  arch: arm64
+          - os: windows-latest
+            platform: win64
             arch: x86_64
-          - os: macos-13  # Intel Mac
-            platform: macosx
-            arch: x86_64
-          - os: macos-14  # Apple Silicon (M1/M2)
-            platform: macosx-arm64
-            arch: arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -55,6 +58,84 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ========== WINDOWS SETUP ==========
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Cache clFFT (Windows)
+        if: runner.os == 'Windows'
+        id: cache-clfft-windows
+        uses: actions/cache@v3
+        with:
+          path: |
+            C:\clFFT
+          key: clfft-windows-v1
+
+      - name: Install clFFT (Windows)
+        if: runner.os == 'Windows' && steps.cache-clfft-windows.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          # Download pre-built clFFT
+          $url = "https://github.com/clMathLibraries/clFFT/releases/download/v2.12.2/clFFT-2.12.2-Windows-x64.msi"
+          $output = "clFFT.msi"
+          
+          Write-Host "Downloading clFFT..."
+          Invoke-WebRequest -Uri $url -OutFile $output
+          
+          # Install MSI
+          Write-Host "Installing clFFT..."
+          Start-Process msiexec.exe -ArgumentList "/i $output /qn /norestart INSTALLDIR=C:\clFFT" -Wait
+          
+          # Verify installation
+          if (Test-Path "C:\clFFT") {
+            Write-Host "clFFT installed successfully"
+            Get-ChildItem "C:\clFFT" -Recurse -Directory
+          } else {
+            Write-Host "ERROR: clFFT not found after installation"
+            exit 1
+          }
+
+      - name: Install OpenCL Headers (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Download Khronos OpenCL headers
+          git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git C:\OpenCL\include\CL
+          
+          Write-Host "OpenCL headers installed:"
+          Get-ChildItem "C:\OpenCL\include\CL"
+
+      - name: Prepare lib directory (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path lib\win64
+          
+          # Copy clFFT DLLs and libs to lib directory
+          Copy-Item "C:\clFFT\bin\*.dll" -Destination "lib\win64\" -Force
+          Copy-Item "C:\clFFT\lib64\import\*.lib" -Destination "lib\win64\" -Force
+          
+          Write-Host "Files in lib\win64:"
+          Get-ChildItem "lib\win64"
+
+      - name: Patch build script for Windows CI
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # Update the Windows section of cppbuild.sh to use CI paths
+          cd native/clij2fft
+          
+          # Backup original
+          cp cppbuild.sh cppbuild.sh.bak
+          
+          # Replace hardcoded paths with CI paths
+          sed -i 's|C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.2/include/|C:/OpenCL/include/|g' cppbuild.sh
+          sed -i 's|C:/OpenCL/clFFT-2.12.2-Windows-x64/lib64/import/|C:/clFFT/lib64/import/|g' cppbuild.sh
+          
+          echo "=== Patched cppbuild.sh (Windows section) ==="
+          grep -A 10 "windows-x86_64)" cppbuild.sh
 
       # ========== LINUX SETUP ==========
       - name: Cache clFFT (Linux)
@@ -186,13 +267,58 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Build native library
+      - name: Build native library (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cd native
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          bash cppbuild.sh
+
+      - name: Build native library (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
           cd native
           bash cppbuild.sh
 
       - name: Build JNI wrapper with Maven
         run: mvn install -Dgpg.skip
+
+      - name: Build native library (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cd native
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          bash cppbuild.sh
+
+      - name: Build native library (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cd native
+          bash cppbuild.sh
+
+      - name: Build JNI wrapper with Maven
+        run: mvn install -Dgpg.skip
+
+      - name: Copy native build artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $PLATFORM = "windows-x86_64"
+          
+          # Copy main native library
+          if (Test-Path "native\clij2fft\cppbuild\clij2fft.dll") {
+            Copy-Item "native\clij2fft\cppbuild\clij2fft.dll" -Destination "lib\win64\"
+          }
+          
+          # Copy JNI wrapper
+          if (Test-Path "target\classes\net\haesleinhuepf\clijx\plugins\$PLATFORM\jniclij2fftWrapper.dll") {
+            Copy-Item "target\classes\net\haesleinhuepf\clijx\plugins\$PLATFORM\jniclij2fftWrapper.dll" -Destination "lib\win64\"
+          }
+          
+          Write-Host "Final lib\win64 contents:"
+          Get-ChildItem "lib\win64"
 
       - name: Copy native build artifacts (Linux)
         if: runner.os == 'Linux'
