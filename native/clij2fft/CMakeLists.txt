@@ -19,6 +19,10 @@ add_custom_target(
 
 SET(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
 SET(CMAKE_INSTALL_RPATH $ORIGIN)
+
+# find clFFT path
+FIND_PATH(CLFFT_LIBRARY_DIR $ENV{CLFFT_LIBRARY_DIR} [DOC "CLFFT library path" ])
+
 # Use the lib directory relative to the project root
 link_directories(${CMAKE_SOURCE_DIR}/lib/macosx-arm64 ${CLFFT_LIBRARY_DIR})
 add_library(clij2fft SHARED clij2fft.cpp)
