@@ -74,18 +74,16 @@ jobs:
             C:\clFFT
           key: clfft-windows-v1
 
-      - name: Install OpenCL Headers and ICD (Windows)
+      - name: Install OpenCL SDK (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Download and setup OpenCL headers
-          git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git C:\OpenCL-SDK\include\CL
+          # Download OpenCL headers
+          git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers.git C:\OpenCL-temp\headers
+          New-Item -ItemType Directory -Force -Path "C:\OpenCL\include\CL"
+          Copy-Item "C:\OpenCL-temp\headers\CL\*" "C:\OpenCL\include\CL\" -Force
 
-          # Move headers to the right place (CMake expects CL/cl.h structure)
-          Move-Item "C:\OpenCL-SDK\include\CL\CL\*" "C:\OpenCL-SDK\include\CL\" -Force
-          Remove-Item "C:\OpenCL-SDK\include\CL\CL" -Recurse -Force -ErrorAction SilentlyContinue
-
-          # Download OpenCL ICD Loader for linking
+          # Download and build OpenCL ICD Loader to get OpenCL.lib
           git clone --depth 1 https://github.com/KhronosGroup/OpenCL-ICD-Loader.git C:\OpenCL-ICD-Loader
           cd C:\OpenCL-ICD-Loader
 
@@ -96,14 +94,19 @@ jobs:
             -G "Visual Studio 17 2022" `
             -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_INSTALL_PREFIX="C:\OpenCL-SDK" `
-            -DOPENCL_ICD_LOADER_HEADERS_DIR="C:\OpenCL-SDK\include"
+            -DOPENCL_ICD_LOADER_HEADERS_DIR="C:\OpenCL\include"
 
           cmake --build . --config Release
-          cmake --install . --config Release
+
+          # Copy the built OpenCL.lib to our OpenCL directory
+          New-Item -ItemType Directory -Force -Path "C:\OpenCL\lib"
+          Copy-Item "Release\OpenCL.lib" "C:\OpenCL\lib\" -Force
 
           Write-Host "OpenCL SDK installed:"
-          Get-ChildItem "C:\OpenCL-SDK" -Recurse
+          Write-Host "Headers:"
+          Get-ChildItem "C:\OpenCL\include\CL"
+          Write-Host "`nLibrary:"
+          Get-ChildItem "C:\OpenCL\lib"
 
       - name: Download pre-built clFFT (Windows)
         if: runner.os == 'Windows' && steps.cache-clfft-windows.outputs.cache-hit != 'true'
@@ -155,18 +158,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          # Update the Windows section of cppbuild.sh to use CI paths
           cd native/clij2fft
-          
+
           # Backup original
           cp cppbuild.sh cppbuild.sh.bak
-          
-          # Replace hardcoded paths with CI paths
+
+          # Replace hardcoded paths AND add OpenCL library path
           sed -i 's|C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.2/include/|C:/OpenCL/include/|g' cppbuild.sh
           sed -i 's|C:/OpenCL/clFFT-2.12.2-Windows-x64/lib64/import/|C:/clFFT/lib64/import/|g' cppbuild.sh
-          
+
+          # Add OpenCL library path (insert after OPENCL_INCLUDE_DIR line)
+          sed -i '/OPENCL_INCLUDE_DIR/a\               -DOPENCL_LIBRARY="C:/OpenCL/lib/OpenCL.lib" \\' cppbuild.sh
+
           echo "=== Patched cppbuild.sh (Windows section) ==="
-          grep -A 10 "windows-x86_64)" cppbuild.sh
+          grep -A 15 "windows-x86_64)" cppbuild.sh
 
       # ========== LINUX SETUP ==========
       - name: Cache clFFT (Linux)
