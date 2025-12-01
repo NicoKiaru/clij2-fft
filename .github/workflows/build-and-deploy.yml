@@ -361,9 +361,6 @@ jobs:
           cd native
           bash cppbuild.sh
 
-      - name: Build JNI wrapper with Maven
-        run: mvn install -Dgpg.skip
-
       - name: Copy native build artifacts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
