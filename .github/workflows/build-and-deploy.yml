@@ -192,7 +192,7 @@ jobs:
           bash cppbuild.sh
 
       - name: Build JNI wrapper with Maven
-        run: mvn install -Dgpg.skip
+        run: mvn install -Dgpg.skip=true
 
       - name: Copy native build artifacts
         shell: bash
