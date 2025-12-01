@@ -127,7 +127,7 @@ jobs:
           cd clFFT/src
           
           # Fix CMakeLists.txt for modern CMake
-          sed -i '' 's/cmake_minimum_required(VERSION 2.8)/cmake_minimum_required(VERSION 3.5)/' CMakeLists.txt
+          sed -i '' 's/cmake_minimum_required(VERSION 2.8)/cmake_minimum_required(VERSION 3.6)/' CMakeLists.txt
     
           mkdir build && cd build
 
