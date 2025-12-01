@@ -17,13 +17,8 @@ on:
 
 jobs:
   build-natives:
-    if: |
-      !contains(github.event.head_commit.message, '[skip ci]') &&
-      (
-        github.event.inputs.build_natives == 'true' ||
-        contains(github.event.head_commit.message, '[build natives]') ||
-        (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'))
-      )
+    # Remove or simplify the if condition
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
 
     strategy:
       fail-fast: false
@@ -42,6 +37,22 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      # Add the conditional check as first step instead
+      - name: Check if should build
+        id: should_build
+        run: |
+          if [[ "${{ contains(github.event.head_commit.message, '[build natives]') }}" == "true" ]] || \
+             [[ "${{ github.event.inputs.build_natives }}" == "true" ]] || \
+             [[ "${{ github.ref }}" == "refs/heads/master" ]] || \
+             [[ "${{ github.ref }}" == "refs/heads/main" ]] || \
+             [[ "${{ github.ref }}" == "refs/heads/gh-actions-build" ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "Skipping build - no trigger found"
+            exit 0
+          fi  
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
